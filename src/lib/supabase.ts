@@ -1,26 +1,19 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Hardcoded credentials (not recommended for production, but acceptable for a college project)
+const supabaseUrl = 'https://xuqgkncmciymfqrudrpb.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1cWdrbmNtY2l5bWZxcnVkcnBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ3MzIwNzUsImV4cCI6MjA2MDMwODA3NX0.tEpBgOj9F0XxWcfQvh4JOPjtvvfaD5N0otSUM4iaEm8';
 
 console.log('Supabase URL:', supabaseUrl);
 console.log('Supabase Anon Key:', supabaseAnonKey ? 'Present' : 'Missing');
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables', {
+  console.error('Missing Supabase credentials', {
     url: supabaseUrl,
     anonKeyPresent: !!supabaseAnonKey
   });
-  throw new Error(`
-    Missing Supabase environment variables. 
-    Please ensure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are set in your environment.
-    
-    To resolve this:
-    1. Check your Supabase project settings
-    2. Add these variables to your project configuration
-    3. Restart the development server
-  `);
+  throw new Error('Missing Supabase credentials');
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);

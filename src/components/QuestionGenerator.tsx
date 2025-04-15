@@ -1,21 +1,55 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/authHelpers';
+
+interface Employee {
+  id: string;
+  user_id: string;
+  name: string;
+  email: string;
+}
 
 const QuestionGenerator = () => {
+  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
-  const [employeeEmail, setEmployeeEmail] = useState('');
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
+  const [employees, setEmployees] = useState<Employee[]>([]);
   const [sendEmail, setSendEmail] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([]);
+  
+  // Fetch employees when component mounts
+  useEffect(() => {
+    const fetchEmployees = async () => {
+      try {
+        // Fetch all users with 'employee' role
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('role', 'employee');
+          
+        if (error) throw error;
+        
+        setEmployees(data || []);
+      } catch (error: any) {
+        console.error('Error fetching employees:', error);
+        toast.error('Failed to load employees');
+      }
+    };
+    
+    fetchEmployees();
+  }, []);
 
   // This would normally call the Gemini API through Flask backend
   const generateQuestions = async () => {
@@ -27,8 +61,8 @@ const QuestionGenerator = () => {
     setIsGenerating(true);
     
     try {
-      // Mock API call to Flask backend with Gemini integration
-      // In real implementation, this would call your Flask API
+      // In a real implementation, this would call your Flask API with Gemini
+      // For now, we'll simulate the API call with a timeout and mock questions
       setTimeout(() => {
         const mockQuestions = [
           "How often do you feel overwhelmed by work responsibilities?",
@@ -56,8 +90,8 @@ const QuestionGenerator = () => {
   };
 
   const assignQuestions = async () => {
-    if (!employeeEmail.trim()) {
-      toast.error('Please enter an employee email');
+    if (!selectedEmployeeId) {
+      toast.error('Please select an employee');
       return;
     }
     
@@ -69,21 +103,63 @@ const QuestionGenerator = () => {
     setIsSubmitting(true);
     
     try {
-      // Mock API call to Flask backend to assign questions and send email
-      // In real implementation, this would call your Flask API which would use Resend API
-      setTimeout(() => {
-        setIsSubmitting(false);
-        toast.success(`Questions assigned to ${employeeEmail}${sendEmail ? ' and email sent' : ''}`);
-        
-        // Reset form
-        setPrompt('');
-        setEmployeeEmail('');
-        setGeneratedQuestions([]);
-      }, 1500);
+      if (!user) {
+        throw new Error('You must be logged in to assign questions');
+      }
       
-    } catch (error) {
+      // Get the selected employee data
+      const selectedEmployee = employees.find(emp => emp.user_id === selectedEmployeeId);
+      
+      if (!selectedEmployee) {
+        throw new Error('Selected employee not found');
+      }
+      
+      // First, create a question set entry
+      const { data: questionSet, error: setError } = await supabase
+        .from('question_sets')
+        .insert({
+          hr_id: user.id,
+          employee_id: selectedEmployeeId,
+          prompt: prompt,
+          status: 'pending'
+        })
+        .select()
+        .single();
+        
+      if (setError) throw setError;
+      
+      // Then create entries for each question
+      const questionsToInsert = generatedQuestions.map(question => ({
+        question_set_id: questionSet.id,
+        employee_id: selectedEmployeeId,
+        hr_id: user.id,
+        question_text: question,
+        status: 'pending'
+      }));
+      
+      const { error: questionsError } = await supabase
+        .from('questions')
+        .insert(questionsToInsert);
+        
+      if (questionsError) throw questionsError;
+      
+      // In a real implementation, you would call Resend API to send email
+      if (sendEmail && selectedEmployee.email) {
+        console.log(`Sending email to ${selectedEmployee.email}`);
+        // This would be an API call to your Flask backend to send an email
+      }
+      
+      setIsSubmitting(false);
+      toast.success(`Questions assigned to ${selectedEmployee.name}${sendEmail ? ' and email sent' : ''}`);
+      
+      // Reset form
+      setPrompt('');
+      setSelectedEmployeeId('');
+      setGeneratedQuestions([]);
+      
+    } catch (error: any) {
       console.error('Error assigning questions:', error);
-      toast.error('Failed to assign questions');
+      toast.error(error.message || 'Failed to assign questions');
       setIsSubmitting(false);
     }
   };
@@ -143,14 +219,22 @@ const QuestionGenerator = () => {
         {generatedQuestions.length > 0 && (
           <div className="border-t pt-4 mt-4 space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Employee Email</Label>
-              <Input 
-                id="email" 
-                type="email" 
-                placeholder="employee@company.com"
-                value={employeeEmail}
-                onChange={(e) => setEmployeeEmail(e.target.value)}
-              />
+              <Label htmlFor="employee">Select Employee</Label>
+              <Select
+                value={selectedEmployeeId}
+                onValueChange={setSelectedEmployeeId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select an employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((employee) => (
+                    <SelectItem key={employee.user_id} value={employee.user_id}>
+                      {employee.name} ({employee.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             
             <div className="flex items-center space-x-2">
@@ -164,7 +248,7 @@ const QuestionGenerator = () => {
             
             <Button 
               onClick={assignQuestions} 
-              disabled={isSubmitting || !employeeEmail.trim()}
+              disabled={isSubmitting || !selectedEmployeeId}
               className="w-full"
             >
               {isSubmitting ? (
