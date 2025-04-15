@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +30,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
     setIsAnalyzing(true);
     
     try {
-      // Fetch all answered questions for this set
       const { data: questions, error: questionsError } = await supabase
         .from('questions')
         .select('*')
@@ -46,14 +44,12 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         return;
       }
       
-      // Prepare data for sending to Flask backend
       const responses = questions.map((q: Question) => ({
         id: q.id,
         answer_text: q.answer_text || ''
       }));
       
-      // Send to Flask API for analysis
-      const apiUrl = 'http://localhost:5000/api/analyze'; // Change in production
+      const apiUrl = 'http://localhost:5000/api/analyze';
       
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -77,7 +73,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         throw new Error('Analysis failed');
       }
       
-      // Format results for display
       const formattedResults = result.results.map((r: any, index: number) => ({
         id: r.question_id,
         risk: r.risk_level,
@@ -91,7 +86,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         questionResults: formattedResults,
       });
       
-      // Update question_sets table with risk level
       const { error: updateError } = await supabase
         .from('question_sets')
         .update({ 
@@ -105,7 +99,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         toast.error('Error updating analysis results in database');
       }
       
-      // Update individual questions with risk levels
       for (const resultItem of result.results) {
         const { error: questionUpdateError } = await supabase
           .from('questions')
@@ -120,7 +113,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         }
       }
       
-      // Create entry in question_history
       const { data: questionSet } = await supabase
         .from('question_sets')
         .select('*')
@@ -143,7 +135,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         }
       }
       
-      // Callback if provided
       if (onAnalysisComplete) {
         onAnalysisComplete(result.overall_risk_level);
       }
@@ -158,7 +149,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
     }
   };
   
-  // Helper function to get color for risk level
   const getRiskColor = (risk: string) => {
     switch (risk) {
       case 'low':
@@ -172,7 +162,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
     }
   };
   
-  // Helper function to get icon for risk level
   const getRiskIcon = (risk: string) => {
     switch (risk) {
       case 'low':
@@ -247,7 +236,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
             )}
             
             {analysisResult.overallRisk === 'medium' && (
-              <Alert variant="warning" className="bg-yellow-50 text-yellow-800 border-yellow-200">
+              <Alert variant="default" className="bg-yellow-50 text-yellow-800 border-yellow-200">
                 <Info className="h-4 w-4" />
                 <AlertTitle>Medium Risk Detected</AlertTitle>
                 <AlertDescription>
