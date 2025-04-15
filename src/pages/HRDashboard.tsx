@@ -21,6 +21,7 @@ const mockAssignedQuestions = [
     assignedDate: '2023-10-15',
     dueDate: '2023-10-22',
     status: 'completed' as const,
+    created_at: '2023-10-15T10:00:00Z', // Added created_at property
     questions: [
       { questionId: 1, question: 'How often do you feel overwhelmed by work responsibilities?', answer: 'I feel overwhelmed about twice a week, usually during project deadlines.', completed: true },
       { questionId: 2, question: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', answer: '6 - Generally satisfied but there is room for improvement.', completed: true },
@@ -34,6 +35,7 @@ const mockAssignedQuestions = [
     assignedDate: '2023-11-01',
     dueDate: '2023-11-08',
     status: 'pending' as const,
+    created_at: '2023-11-01T10:00:00Z', // Added created_at property
     questions: [
       { questionId: 1, question: 'Have you experienced feelings of hopelessness in the past month?', answer: '', completed: false },
       { questionId: 2, question: 'Do you find it difficult to concentrate on tasks?', answer: '', completed: false },

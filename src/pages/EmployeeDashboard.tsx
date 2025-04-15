@@ -15,6 +15,7 @@ const mockAssignedQuestions = [
     assignedDate: '2023-11-01',
     dueDate: '2023-11-08',
     status: 'pending' as const,
+    created_at: '2023-11-01T10:00:00Z', // Added created_at property
     questions: [
       { questionId: 1, question: 'How often do you feel overwhelmed by work responsibilities?', answer: '', completed: false },
       { questionId: 2, question: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', answer: '', completed: false },
