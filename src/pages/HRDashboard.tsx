@@ -21,13 +21,38 @@ const mockAssignedQuestions = [
     assignedDate: '2023-10-15',
     dueDate: '2023-10-22',
     status: 'completed' as const,
-    created_at: '2023-10-15T10:00:00Z', // Added created_at property
+    created_at: '2023-10-15T10:00:00Z',
     questions: [
-      { questionId: 1, question: 'How often do you feel overwhelmed by work responsibilities?', answer: 'I feel overwhelmed about twice a week, usually during project deadlines.', completed: true },
-      { questionId: 2, question: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', answer: '6 - Generally satisfied but there is room for improvement.', completed: true },
-      { questionId: 3, question: 'Have you experienced changes in your sleep patterns recently?', answer: 'Yes, I have been having trouble falling asleep for the past two weeks.', completed: true },
-      { questionId: 4, question: 'Do you have someone you can talk to when you\'re feeling down?', answer: 'I usually talk to my partner or my best friend when I feel down.', completed: true },
-      { questionId: 5, question: 'How often do you engage in activities you enjoy outside of work?', answer: 'About once or twice a week, mostly on weekends.', completed: true },
+      { 
+        id: '1', 
+        question_text: 'How often do you feel overwhelmed by work responsibilities?', 
+        answer_text: 'I feel overwhelmed about twice a week, usually during project deadlines.', 
+        status: 'answered' as const 
+      },
+      { 
+        id: '2', 
+        question_text: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', 
+        answer_text: '6 - Generally satisfied but there is room for improvement.', 
+        status: 'answered' as const 
+      },
+      { 
+        id: '3', 
+        question_text: 'Have you experienced changes in your sleep patterns recently?', 
+        answer_text: 'Yes, I have been having trouble falling asleep for the past two weeks.', 
+        status: 'answered' as const 
+      },
+      { 
+        id: '4', 
+        question_text: 'Do you have someone you can talk to when you\'re feeling down?', 
+        answer_text: 'I usually talk to my partner or my best friend when I feel down.', 
+        status: 'answered' as const 
+      },
+      { 
+        id: '5', 
+        question_text: 'How often do you engage in activities you enjoy outside of work?', 
+        answer_text: 'About once or twice a week, mostly on weekends.', 
+        status: 'answered' as const 
+      },
     ]
   },
   {
@@ -35,13 +60,38 @@ const mockAssignedQuestions = [
     assignedDate: '2023-11-01',
     dueDate: '2023-11-08',
     status: 'pending' as const,
-    created_at: '2023-11-01T10:00:00Z', // Added created_at property
+    created_at: '2023-11-01T10:00:00Z',
     questions: [
-      { questionId: 1, question: 'Have you experienced feelings of hopelessness in the past month?', answer: '', completed: false },
-      { questionId: 2, question: 'Do you find it difficult to concentrate on tasks?', answer: '', completed: false },
-      { questionId: 3, question: 'Have you noticed changes in your appetite or eating habits?', answer: '', completed: false },
-      { questionId: 4, question: 'How would you describe your energy levels throughout the day?', answer: '', completed: false },
-      { questionId: 5, question: 'Do you ever feel that life is not worth living?', answer: '', completed: false },
+      { 
+        id: '1', 
+        question_text: 'Have you experienced feelings of hopelessness in the past month?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '2', 
+        question_text: 'Do you find it difficult to concentrate on tasks?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '3', 
+        question_text: 'Have you noticed changes in your appetite or eating habits?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '4', 
+        question_text: 'How would you describe your energy levels throughout the day?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '5', 
+        question_text: 'Do you ever feel that life is not worth living?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
     ]
   }
 ];

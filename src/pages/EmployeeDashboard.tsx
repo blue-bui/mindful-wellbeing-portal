@@ -15,13 +15,38 @@ const mockAssignedQuestions = [
     assignedDate: '2023-11-01',
     dueDate: '2023-11-08',
     status: 'pending' as const,
-    created_at: '2023-11-01T10:00:00Z', // Added created_at property
+    created_at: '2023-11-01T10:00:00Z',
     questions: [
-      { questionId: 1, question: 'How often do you feel overwhelmed by work responsibilities?', answer: '', completed: false },
-      { questionId: 2, question: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', answer: '', completed: false },
-      { questionId: 3, question: 'Have you experienced changes in your sleep patterns recently?', answer: '', completed: false },
-      { questionId: 4, question: 'Do you have someone you can talk to when you\'re feeling down?', answer: '', completed: false },
-      { questionId: 5, question: 'How often do you engage in activities you enjoy outside of work?', answer: '', completed: false },
+      { 
+        id: '1', 
+        question_text: 'How often do you feel overwhelmed by work responsibilities?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '2', 
+        question_text: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '3', 
+        question_text: 'Have you experienced changes in your sleep patterns recently?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '4', 
+        question_text: 'Do you have someone you can talk to when you\'re feeling down?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
+      { 
+        id: '5', 
+        question_text: 'How often do you engage in activities you enjoy outside of work?', 
+        answer_text: '', 
+        status: 'pending' as const 
+      },
     ]
   }
 ];
