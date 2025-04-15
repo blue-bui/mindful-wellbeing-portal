@@ -1,42 +1,54 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { CheckCircle, Clock, Send } from 'lucide-react';
+import { CheckCircle, Clock, Send, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
+import { format } from 'date-fns';
+import { useAuth } from '../lib/authHelpers';
 
-// Mock data types
-interface QuestionResponse {
-  questionId: number;
-  question: string;
-  answer: string;
-  completed: boolean;
+interface QuestionItem {
+  id: string;
+  question_text: string;
+  answer_text?: string;
+  status: 'pending' | 'answered' | 'analyzed';
 }
 
-interface QuestionSet {
+interface QuestionSetItem {
   id: string;
-  assignedDate: string;
-  dueDate: string;
-  status: 'pending' | 'completed';
-  questions: QuestionResponse[];
+  created_at: string;
+  status: 'pending' | 'completed' | 'analyzed';
+  questions: QuestionItem[];
 }
 
 interface QuestionListProps {
-  assignedQuestions: QuestionSet[];
+  assignedQuestions?: QuestionSetItem[];
   isEmployee?: boolean;
-  onSubmitAnswers?: (questionSetId: string, answers: QuestionResponse[]) => void;
+  onSubmitAnswers?: (questionSetId: string, answers: QuestionItem[]) => void;
+  loading?: boolean;
+  refetchQuestions?: () => void;
 }
 
 const QuestionList: React.FC<QuestionListProps> = ({ 
-  assignedQuestions, 
+  assignedQuestions = [], 
   isEmployee = false,
-  onSubmitAnswers = () => {} 
+  onSubmitAnswers,
+  loading = false,
+  refetchQuestions
 }) => {
-  const [currentAnswers, setCurrentAnswers] = React.useState<Record<string, Record<number, string>>>({});
-
-  const handleAnswerChange = (questionSetId: string, questionId: number, answer: string) => {
+  const { user } = useAuth();
+  const [questions, setQuestions] = useState<QuestionSetItem[]>(assignedQuestions);
+  const [currentAnswers, setCurrentAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  
+  useEffect(() => {
+    setQuestions(assignedQuestions);
+  }, [assignedQuestions]);
+  
+  const handleAnswerChange = (questionSetId: string, questionId: string, answer: string) => {
     setCurrentAnswers(prev => ({
       ...prev,
       [questionSetId]: {
@@ -46,25 +58,96 @@ const QuestionList: React.FC<QuestionListProps> = ({
     }));
   };
 
-  const handleSubmit = (questionSetId: string, questions: QuestionResponse[]) => {
-    const updatedQuestions = questions.map(q => ({
-      ...q,
-      answer: currentAnswers[questionSetId]?.[q.questionId] || q.answer,
-      completed: true
-    }));
+  const handleSubmit = async (questionSetId: string, questions: QuestionItem[]) => {
+    if (!user) {
+      toast.error('You must be logged in to submit answers');
+      return;
+    }
     
-    onSubmitAnswers(questionSetId, updatedQuestions);
-    toast.success('Responses submitted successfully');
+    const answersForThisSet = currentAnswers[questionSetId] || {};
     
-    // Reset answers for this set
-    setCurrentAnswers(prev => {
-      const newAnswers = {...prev};
-      delete newAnswers[questionSetId];
-      return newAnswers;
-    });
+    // Check if all questions have been answered
+    let allAnswered = true;
+    for (const question of questions) {
+      if (!answersForThisSet[question.id] && !question.answer_text) {
+        allAnswered = false;
+        break;
+      }
+    }
+    
+    if (!allAnswered) {
+      toast.warning('Please answer all questions before submitting');
+      return;
+    }
+    
+    setSubmitting(questionSetId);
+    
+    try {
+      // Update each question with its answer
+      for (const question of questions) {
+        if (answersForThisSet[question.id]) {
+          const { error } = await supabase
+            .from('questions')
+            .update({
+              answer_text: answersForThisSet[question.id],
+              status: 'answered',
+              answered_at: new Date().toISOString()
+            })
+            .eq('id', question.id);
+            
+          if (error) {
+            throw new Error(`Error updating question ${question.id}: ${error.message}`);
+          }
+        }
+      }
+      
+      // Update the question set status
+      const { error } = await supabase
+        .from('question_sets')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', questionSetId);
+        
+      if (error) {
+        throw new Error(`Error updating question set: ${error.message}`);
+      }
+      
+      toast.success('Responses submitted successfully');
+      
+      // Clear answers for this set
+      setCurrentAnswers(prev => {
+        const newAnswers = {...prev};
+        delete newAnswers[questionSetId];
+        return newAnswers;
+      });
+      
+      // Refetch the questions if callback provided
+      if (refetchQuestions) {
+        refetchQuestions();
+      }
+      
+    } catch (error: any) {
+      console.error('Error submitting answers:', error);
+      toast.error(error.message || 'Failed to submit answers');
+    } finally {
+      setSubmitting(null);
+    }
   };
 
-  if (assignedQuestions.length === 0) {
+  if (loading) {
+    return (
+      <Card className="text-center p-6">
+        <div className="flex justify-center items-center flex-col p-4">
+          <Loader2 className="h-8 w-8 animate-spin mb-2 text-wellness-teal" />
+          <p>Loading questions...</p>
+        </div>
+      </Card>
+    );
+  }
+
+  if (questions.length === 0) {
     return (
       <Card className="text-center p-6">
         <p className="text-muted-foreground">
@@ -78,7 +161,7 @@ const QuestionList: React.FC<QuestionListProps> = ({
 
   return (
     <div className="space-y-6">
-      {assignedQuestions.map((questionSet) => (
+      {questions.map((questionSet) => (
         <Card key={questionSet.id} className="overflow-hidden">
           <CardHeader className="bg-muted/50">
             <div className="flex justify-between items-center">
@@ -87,20 +170,20 @@ const QuestionList: React.FC<QuestionListProps> = ({
                   Assessment {questionSet.id.substring(0, 8)}
                 </CardTitle>
                 <CardDescription>
-                  Assigned: {questionSet.assignedDate} | Due: {questionSet.dueDate}
+                  Assigned: {format(new Date(questionSet.created_at), 'PPP')}
                 </CardDescription>
               </div>
               <Badge 
-                variant={questionSet.status === 'completed' ? "default" : "outline"}
-                className={questionSet.status === 'completed' 
+                variant={questionSet.status !== 'pending' ? "default" : "outline"}
+                className={questionSet.status !== 'pending' 
                   ? "bg-green-100 text-green-800 hover:bg-green-100" 
                   : "border-wellness-accent text-wellness-accent"
                 }
               >
-                {questionSet.status === 'completed' ? (
+                {questionSet.status !== 'pending' ? (
                   <span className="flex items-center gap-1">
                     <CheckCircle size={14} />
-                    Completed
+                    {questionSet.status.charAt(0).toUpperCase() + questionSet.status.slice(1)}
                   </span>
                 ) : (
                   <span className="flex items-center gap-1">
@@ -114,21 +197,21 @@ const QuestionList: React.FC<QuestionListProps> = ({
           <CardContent className="pt-4">
             <div className="space-y-4">
               {questionSet.questions.map((item) => (
-                <div key={item.questionId} className="p-3 border rounded-md">
-                  <p className="font-medium mb-2">{item.question}</p>
+                <div key={item.id} className="p-3 border rounded-md">
+                  <p className="font-medium mb-2">{item.question_text}</p>
                   
                   {isEmployee && questionSet.status === 'pending' ? (
                     <Textarea
                       placeholder="Type your answer here..."
-                      value={currentAnswers[questionSet.id]?.[item.questionId] || ''}
-                      onChange={(e) => handleAnswerChange(questionSet.id, item.questionId, e.target.value)}
+                      value={currentAnswers[questionSet.id]?.[item.id] || item.answer_text || ''}
+                      onChange={(e) => handleAnswerChange(questionSet.id, item.id, e.target.value)}
                       className="mt-2"
                     />
                   ) : (
-                    item.answer && (
+                    item.answer_text && (
                       <div className="bg-muted p-3 rounded-md mt-2 text-sm">
                         <p className="text-xs text-muted-foreground mb-1">Response:</p>
-                        {item.answer}
+                        {item.answer_text}
                       </div>
                     )
                   )}
@@ -140,9 +223,19 @@ const QuestionList: React.FC<QuestionListProps> = ({
                   <Button 
                     className="bg-wellness-teal hover:bg-wellness-teal/90 flex items-center gap-2"
                     onClick={() => handleSubmit(questionSet.id, questionSet.questions)}
+                    disabled={submitting === questionSet.id}
                   >
-                    <Send size={16} />
-                    Submit Responses
+                    {submitting === questionSet.id ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin mr-1" />
+                        Submitting...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={16} />
+                        Submit Responses
+                      </>
+                    )}
                   </Button>
                 </div>
               )}

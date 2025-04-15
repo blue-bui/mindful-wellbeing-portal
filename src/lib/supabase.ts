@@ -1,7 +1,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Hardcoded credentials (not recommended for production, but acceptable for a college project)
+// Credentials provided by the user
 const supabaseUrl = 'https://xuqgkncmciymfqrudrpb.supabase.co';
 const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1cWdrbmNtY2l5bWZxcnVkcnBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ3MzIwNzUsImV4cCI6MjA2MDMwODA3NX0.tEpBgOj9F0XxWcfQvh4JOPjtvvfaD5N0otSUM4iaEm8';
 
@@ -30,6 +30,7 @@ export type UserProfile = {
 
 export type Question = {
   id: string;
+  question_set_id: string;
   employee_id: string;
   hr_id: string;
   question_text: string;
@@ -56,7 +57,6 @@ export type QuestionHistory = {
   question_set_id: string;
   employee_id: string;
   hr_id: string;
-  questions: Question[];
   overall_risk_level: 'low' | 'medium' | 'high';
   completed_at: string;
 };

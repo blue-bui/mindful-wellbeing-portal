@@ -1,69 +1,66 @@
 
-# Preventing Suicide - API
+# Suicide Prevention API
 
-This is the Flask backend for the "Preventing Suicide" project, which provides an API for sentiment analysis of user responses.
+This folder contains the Flask API for the suicide risk assessment and analysis backend.
 
 ## Setup Instructions
 
-### Prerequisites
-- Python 3.8+
-- pip (Python package manager)
+1. **Install Python Dependencies**
 
-### Installation
-
-1. Create a virtual environment (recommended):
-   ```
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-2. Install dependencies:
-   ```
+   ```bash
+   cd api
    pip install -r requirements.txt
    ```
 
-3. Download the dataset:
-   - Visit: https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch
-   - Download the dataset and place the CSV file in the `data` directory
-   - Rename the file to `suicide_detection.csv` if needed
+2. **Download the Dataset**
 
-4. Train the model:
-   ```
+   Download the suicide detection dataset from Kaggle:
+   [Suicide Watch Dataset](https://www.kaggle.com/datasets/nikhileswarkomati/suicide-watch)
+
+   Place the downloaded `suicide_detection.csv` file in the `api/data/` directory.
+
+3. **Train the Model**
+
+   ```bash
    python train_model.py
    ```
-   This will create a trained model and vectorizer in the `model` directory.
 
-5. Start the Flask server:
-   ```
+   This will:
+   - Preprocess the data
+   - Train a machine learning model
+   - Save the model and vectorizer to the `model/` directory
+   - Generate a log file with training metrics
+
+4. **Start the Flask API**
+
+   ```bash
    python app.py
    ```
-   The API will be available at http://localhost:5000
+
+   The API will be available at `http://localhost:5000`
 
 ## API Endpoints
 
 ### Health Check
 - **URL**: `/api/health`
 - **Method**: `GET`
-- **Response**: 
-  ```json
-  {"status": "healthy", "model_loaded": true}
-  ```
+- **Response**: Status of the API and whether the model is loaded
 
 ### Analyze Responses
 - **URL**: `/api/analyze`
 - **Method**: `POST`
-- **Request Body**:
+- **Body**:
   ```json
   {
-    "question_set_id": "123e4567-e89b-12d3-a456-426614174000",
+    "question_set_id": "uuid-of-question-set",
     "responses": [
       {
-        "id": "123",
-        "answer_text": "I feel overwhelmed sometimes but I cope well."
+        "id": "question-id-1",
+        "answer_text": "Response text for question 1"
       },
       {
-        "id": "124",
-        "answer_text": "I've been having trouble sleeping lately."
+        "id": "question-id-2",
+        "answer_text": "Response text for question 2"
       }
     ]
   }
@@ -71,24 +68,33 @@ This is the Flask backend for the "Preventing Suicide" project, which provides a
 - **Response**:
   ```json
   {
-    "question_set_id": "123e4567-e89b-12d3-a456-426614174000",
+    "question_set_id": "uuid-of-question-set",
     "results": [
       {
-        "question_id": "123",
-        "risk_level": "low",
-        "probability": 0.15
+        "question_id": "question-id-1",
+        "risk_level": "low|medium|high",
+        "probability": 0.25
       },
       {
-        "question_id": "124",
-        "risk_level": "medium",
-        "probability": 0.45
+        "question_id": "question-id-2",
+        "risk_level": "low|medium|high",
+        "probability": 0.75
       }
     ],
-    "overall_risk_level": "low",
+    "overall_risk_level": "low|medium|high",
     "status": "success"
   }
   ```
 
-## Important Note
+## Deployment
 
-This project is for educational purposes only as part of a college minor project and should not be used for commercial purposes. Always consult healthcare professionals for actual mental health assessment and treatment.
+For production deployment:
+
+1. Update the API URL in the frontend `QuestionAnalyzer.tsx` component from `http://localhost:5000/api/analyze` to your production URL.
+
+2. Deploy using Gunicorn:
+   ```bash
+   gunicorn --bind 0.0.0.0:5000 app:app
+   ```
+
+3. Consider using a production-ready WSGI server (Gunicorn) behind a reverse proxy (Nginx) for better performance and security.

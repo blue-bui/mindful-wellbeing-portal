@@ -1,0 +1,33 @@
+
+version: '3'
+
+services:
+  # Frontend React app
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_SUPABASE_URL=https://xuqgkncmciymfqrudrpb.supabase.co
+      - VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh1cWdrbmNtY2l5bWZxcnVkcnBiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ3MzIwNzUsImV4cCI6MjA2MDMwODA3NX0.tEpBgOj9F0XxWcfQvh4JOPjtvvfaD5N0otSUM4iaEm8
+      - VITE_API_URL=http://api:5000
+    volumes:
+      - ./:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+  # Flask backend API
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./api:/app
+    environment:
+      - FLASK_ENV=production
+      - PORT=5000
