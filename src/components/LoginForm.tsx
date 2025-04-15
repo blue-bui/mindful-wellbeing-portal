@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from 'sonner';
+import { supabase } from '../lib/supabase';
 
 const LoginForm = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [userType, setUserType] = useState('employee');
   const [isLoading, setIsLoading] = useState(false);
@@ -20,29 +21,53 @@ const LoginForm = () => {
     setIsLoading(true);
     
     try {
-      // In a real application, this would be replaced with Supabase authentication
-      console.log('Login attempt:', { username, password, userType });
+      // Sign in with Supabase
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
       
-      // Simulate authentication for demo purposes
-      setTimeout(() => {
-        setIsLoading(false);
-        
-        if (username && password) {
-          if (userType === 'hr') {
-            navigate('/hr-dashboard');
-          } else {
-            navigate('/employee-dashboard');
-          }
-          toast.success('Login successful');
-        } else {
-          toast.error('Invalid credentials');
+      if (error) throw error;
+      
+      if (data.user) {
+        // Fetch the user's profile to determine if they are HR or employee
+        const { data: profileData, error: profileError } = await supabase
+          .from('user_profiles')
+          .select('role')
+          .eq('user_id', data.user.id)
+          .single();
+          
+        if (profileError) {
+          console.error('Error fetching user profile:', profileError);
+          toast.error('Error fetching user profile');
+          setIsLoading(false);
+          return;
         }
-      }, 1000);
-      
-    } catch (error) {
-      setIsLoading(false);
-      toast.error('Login failed');
+        
+        // Check if the selected role matches the actual role
+        if (profileData.role !== userType) {
+          toast.error(`Invalid login. You are not registered as ${userType}`);
+          await supabase.auth.signOut();
+          setIsLoading(false);
+          return;
+        }
+        
+        localStorage.setItem('userRole', profileData.role);
+        
+        // Redirect based on user role
+        if (profileData.role === 'hr') {
+          navigate('/hr-dashboard');
+        } else {
+          navigate('/employee-dashboard');
+        }
+        
+        toast.success('Login successful');
+      }
+    } catch (error: any) {
       console.error('Login error:', error);
+      toast.error(error.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -57,13 +82,13 @@ const LoginForm = () => {
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your username"
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
               required
             />
           </div>
@@ -104,7 +129,7 @@ const LoginForm = () => {
         </form>
       </CardContent>
       <CardFooter className="flex justify-center text-sm text-gray-500">
-        <p>For demo purposes only. No real authentication implemented.</p>
+        <p>Contact your HR department if you need access.</p>
       </CardFooter>
     </Card>
   );
