@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,12 +12,12 @@ const LoginForm = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [userType, setUserType] = useState('employee');
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    setLoading(true);
     
     try {
       // Sign in with Supabase
@@ -40,7 +39,7 @@ const LoginForm = () => {
         if (profileError) {
           console.error('Error fetching user profile:', profileError);
           toast.error('Error fetching user profile');
-          setIsLoading(false);
+          setLoading(false);
           return;
         }
         
@@ -48,7 +47,7 @@ const LoginForm = () => {
         if (profileData.role !== userType) {
           toast.error(`Invalid login. You are not registered as ${userType}`);
           await supabase.auth.signOut();
-          setIsLoading(false);
+          setLoading(false);
           return;
         }
         
@@ -67,7 +66,7 @@ const LoginForm = () => {
       console.error('Login error:', error);
       toast.error(error.message || 'Login failed');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
@@ -122,10 +121,17 @@ const LoginForm = () => {
           <Button 
             type="submit" 
             className="w-full bg-wellness-teal hover:bg-wellness-teal/90"
-            disabled={isLoading}
+            disabled={loading}
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Signing in...' : 'Sign in'}
           </Button>
+
+          <p className="text-center text-sm text-gray-600 mt-4">
+            Don't have an account?{' '}
+            <Link to="/signup" className="text-wellness-teal hover:underline">
+              Sign up
+            </Link>
+          </p>
         </form>
       </CardContent>
       <CardFooter className="flex justify-center text-sm text-gray-500">
