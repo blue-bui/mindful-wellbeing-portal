@@ -11,7 +11,6 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
@@ -33,8 +32,8 @@ serve(async (req) => {
 
     console.log(`Generating questions for employee ${employeeId} with prompt: ${prompt.substring(0, 50)}...`)
 
-    // Create context-aware prompt for generating psychological assessment questions
-    const enhancedPrompt = `Based on this context about an employee: "${prompt}", generate 10 psychologically-informed questions that can help assess potential suicidal tendencies. The questions should be professional, empathetic, and indirect. Focus on emotional states, work-life balance, and mental well-being. Format the response as a JSON array of strings.`
+    // Update the prompt to request JSON formatted questions
+    const enhancedPrompt = `Based on this context about an employee: "${prompt}", generate 10 psychologically-informed questions that can help assess potential suicidal tendencies. The questions should be professional, empathetic, and indirect. Focus on emotional states, work-life balance, and mental well-being. Format the response as a JSON object where keys are Q1, Q2, etc., and values are the question texts. Example format: {"Q1": "How would you describe your current work-life balance?", "Q2": "What changes have you noticed in your daily routine recently?"}`
 
     const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
@@ -64,22 +63,23 @@ serve(async (req) => {
     }
 
     // Extract questions from Gemini's response
-    let questions
+    let questions = []
     try {
-      // The response might be a JSON string within the text, so we need to parse it
       const responseText = data.candidates[0].content.parts[0].text
-      console.log('Raw Gemini response:', responseText.substring(0, 100) + '...')
+      console.log('Raw Gemini response:', responseText)
       
-      // Find anything that looks like a JSON array in the response
-      const jsonMatch = responseText.match(/\[.*\]/s)
+      // Find JSON object in the response
+      const jsonMatch = responseText.match(/\{[^]*\}/s)
       if (jsonMatch) {
-        questions = JSON.parse(jsonMatch[0])
+        const questionsObj = JSON.parse(jsonMatch[0])
+        // Convert JSON object to array of questions
+        questions = Object.values(questionsObj)
       } else {
-        // If no JSON array is found, split by newlines and clean up
+        // Fallback if JSON parsing fails
         questions = responseText
           .split('\n')
           .filter(line => line.trim())
-          .map(line => line.replace(/^\d+\.\s*/, '').trim())
+          .map(line => line.replace(/^(Q\d+:|"\w+":|[0-9]+\.)/, '').trim())
           .filter(line => line.endsWith('?'))
       }
     } catch (error) {
@@ -93,11 +93,14 @@ serve(async (req) => {
       throw new Error('No valid questions generated')
     }
 
-    console.log(`Successfully generated ${questions.length} questions for employee ${employeeId}`)
+    // Limit to 10 questions and ensure they're all strings
+    const finalQuestions = questions.slice(0, 10).map(q => String(q).trim())
+
+    console.log(`Successfully generated ${finalQuestions.length} questions for employee ${employeeId}`)
 
     return new Response(
       JSON.stringify({ 
-        questions: questions.slice(0, 10),
+        questions: finalQuestions,
         employeeId: employeeId
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

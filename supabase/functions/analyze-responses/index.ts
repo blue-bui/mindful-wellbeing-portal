@@ -1,140 +1,123 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3'
 import "https://deno.land/x/xhr@0.1.0/mod.ts"
-
-// This would normally be connected to our trained ML model
-// For now, we'll use a simplified approach to demonstrate the functionality
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-// Mock suicide-related words/phrases for demonstration
-const suicidalPhrases = [
-  "want to die", "kill myself", "end my life", "no reason to live", 
-  "better off dead", "can't go on", "give up", "tired of living",
-  "hopeless", "worthless", "burden", "never get better",
-  "trapped", "unbearable pain", "no future", "nothing to live for",
-  "suicide", "disappear forever", "peaceful death"
-];
-
-// Negative sentiment words
-const negativeWords = [
-  "sad", "depressed", "anxious", "worried", "stressed", "overwhelmed",
-  "lost", "alone", "isolated", "afraid", "fearful", "tired", "exhausted",
-  "empty", "numb", "pain", "hurt", "suffer", "struggling", "difficulty",
-  "problem", "trouble", "fail", "failure", "disappointed", "regret", "guilt",
-  "ashamed", "worthless", "useless", "insignificant", "helpless", "hopeless"
-];
-
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders })
   }
 
   try {
     const { question_set_id, responses } = await req.json()
-    
-    if (!question_set_id) {
-      throw new Error('question_set_id is required')
+
+    if (!question_set_id || !responses || !Array.isArray(responses)) {
+      throw new Error('Invalid request data')
     }
-    
-    if (!responses || !Array.isArray(responses) || responses.length === 0) {
-      throw new Error('Responses array is required and cannot be empty')
+
+    // Initialize Supabase client
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+    )
+
+    // Get the question set to retrieve employee_id and hr_id
+    const { data: questionSet, error: questionSetError } = await supabaseClient
+      .from('question_sets')
+      .select('employee_id, hr_id')
+      .eq('id', question_set_id)
+      .single()
+
+    if (questionSetError) throw questionSetError
+
+    // Simple sentiment analysis function
+    const analyzeSentiment = (text: string) => {
+      const negativeWords = ['sad', 'depressed', 'hopeless', 'worthless', 'suicide', 'die', 'end', 'tired', 'exhausted', 'alone']
+      const words = text.toLowerCase().split(/\W+/)
+      const negativeCount = words.filter(word => negativeWords.includes(word)).length
+      const riskScore = (negativeCount / words.length) * 100
+
+      if (riskScore > 20) return { risk_level: 'high', probability: riskScore }
+      if (riskScore > 10) return { risk_level: 'medium', probability: riskScore }
+      return { risk_level: 'low', probability: riskScore }
     }
-    
-    console.log(`Analyzing responses for question set: ${question_set_id}`)
-    console.log(`Number of responses to analyze: ${responses.length}`)
-    
-    // Process each response and calculate risk scores
+
+    // Analyze each response
     const results = responses.map(response => {
-      const text = (response.answer_text || '').toLowerCase()
-      
-      // 1. Check for direct suicidal phrases (highest risk)
-      const hasSuicidalPhrases = suicidalPhrases.some(phrase => text.includes(phrase.toLowerCase()))
-      
-      // 2. Count negative sentiment words
-      const negativeWordCount = negativeWords.filter(word => {
-        const regex = new RegExp(`\\b${word}\\b`, 'i')
-        return regex.test(text)
-      }).length
-      
-      // 3. Calculate raw score based on text length and negative word density
-      const wordCount = text.split(/\s+/).length
-      const negativeWordDensity = wordCount > 0 ? negativeWordCount / wordCount : 0
-      
-      // 4. Determine risk level
-      let riskLevel = 'low'
-      let probability = 0.1 + (negativeWordDensity * 0.5) // Base probability
-      
-      if (hasSuicidalPhrases) {
-        riskLevel = 'high'
-        probability = 0.8 + (Math.random() * 0.2) // 80-100%
-      } else if (negativeWordDensity > 0.4) {
-        riskLevel = 'high'
-        probability = 0.7 + (Math.random() * 0.15) // 70-85%
-      } else if (negativeWordDensity > 0.25) {
-        riskLevel = 'medium'
-        probability = 0.4 + (Math.random() * 0.3) // 40-70%
-      } else if (negativeWordDensity > 0.15) {
-        riskLevel = 'medium'
-        probability = 0.3 + (Math.random() * 0.2) // 30-50%
-      } else {
-        probability = 0.1 + (Math.random() * 0.2) // 10-30%
-      }
-      
-      // Round probability to 2 decimal places
-      probability = Math.round(probability * 100) / 100
-      
-      console.log(`Analysis for response ${response.id}: Risk level = ${riskLevel}, Probability = ${probability}`)
-      
+      const analysis = analyzeSentiment(response.answer_text)
       return {
         question_id: response.id,
-        risk_level: riskLevel,
-        probability: probability
+        risk_level: analysis.risk_level,
+        probability: analysis.probability
       }
     })
-    
-    // Calculate overall risk level based on all responses
-    const riskCounts = {
-      low: results.filter(r => r.risk_level === 'low').length,
-      medium: results.filter(r => r.risk_level === 'medium').length,
-      high: results.filter(r => r.risk_level === 'high').length
+
+    // Calculate overall risk level
+    const riskScores = { high: 3, medium: 2, low: 1 }
+    const averageRisk = results.reduce((acc, curr) => 
+      acc + riskScores[curr.risk_level as keyof typeof riskScores], 0) / results.length
+
+    const overall_risk_level = 
+      averageRisk > 2.5 ? 'high' :
+      averageRisk > 1.5 ? 'medium' : 'low'
+
+    // Update question set status and risk level
+    const { error: updateSetError } = await supabaseClient
+      .from('question_sets')
+      .update({ 
+        status: 'analyzed',
+        risk_level: overall_risk_level,
+        completed_at: new Date().toISOString()
+      })
+      .eq('id', question_set_id)
+
+    if (updateSetError) throw updateSetError
+
+    // Update individual questions with their risk levels
+    for (const result of results) {
+      const { error: updateError } = await supabaseClient
+        .from('questions')
+        .update({ 
+          status: 'analyzed',
+          risk_level: result.risk_level
+        })
+        .eq('id', result.question_id)
+
+      if (updateError) throw updateError
     }
-    
-    let overallRiskLevel = 'low'
-    if (riskCounts.high > 0) {
-      overallRiskLevel = 'high'
-    } else if (riskCounts.medium > riskCounts.low) {
-      overallRiskLevel = 'medium'
-    }
-    
-    console.log(`Overall risk assessment: ${overallRiskLevel} (Low: ${riskCounts.low}, Medium: ${riskCounts.medium}, High: ${riskCounts.high})`)
-    
+
+    // Create analysis history record
+    const { error: historyError } = await supabaseClient
+      .from('question_history')
+      .insert({
+        question_set_id: question_set_id,
+        employee_id: questionSet.employee_id,
+        hr_id: questionSet.hr_id,
+        overall_risk_level: overall_risk_level,
+        completed_at: new Date().toISOString()
+      })
+
+    if (historyError) throw historyError
+
     return new Response(
       JSON.stringify({
         status: 'success',
         results: results,
-        overall_risk_level: overallRiskLevel,
-        risk_counts: riskCounts
+        overall_risk_level: overall_risk_level
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
-    
+
   } catch (error) {
-    console.error('Error in analyze-responses function:', error.message)
-    
+    console.error('Error in analyze-responses function:', error)
     return new Response(
-      JSON.stringify({ 
-        status: 'error',
-        message: error.message 
-      }),
-      { 
-        status: 500, 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-      }
+      JSON.stringify({ error: error.message }),
+      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
   }
 })
