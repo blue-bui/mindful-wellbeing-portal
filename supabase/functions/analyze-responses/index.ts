@@ -35,43 +35,73 @@ serve(async (req) => {
 
     if (questionSetError) throw questionSetError
 
-    // Simple sentiment analysis function
-    const analyzeSentiment = (text: string) => {
-      const negativeWords = ['sad', 'depressed', 'hopeless', 'worthless', 'suicide', 'die', 'end', 'tired', 'exhausted', 'alone']
-      const words = text.toLowerCase().split(/\W+/)
-      const negativeCount = words.filter(word => negativeWords.includes(word)).length
-      const riskScore = (negativeCount / words.length) * 100
+    // Format questions and answers for Gemini API
+    const analysisPrompt = `You are a mental health assessment expert. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
 
-      if (riskScore > 20) return { risk_level: 'high', probability: riskScore }
-      if (riskScore > 10) return { risk_level: 'medium', probability: riskScore }
-      return { risk_level: 'low', probability: riskScore }
+Questions and Answers to analyze:
+${responses.map((r: any) => `Q: ${r.question_text}\nA: ${r.answer_text}\n`).join('\n')}
+
+Please provide your analysis in this exact JSON format:
+{
+  "responses": [
+    {"question_id": "1", "risk_level": "low/medium/high", "probability": 0.XX},
+    // ... for all responses
+  ],
+  "overall_risk": "low/medium/high",
+  "explanation": "brief explanation of overall assessment"
+}
+
+Base your assessment on factors like:
+- Expression of hopelessness
+- Signs of isolation
+- Mentions of self-harm
+- Emotional distress levels
+- Support system presence`
+
+    // Call Gemini API for analysis
+    const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${Deno.env.get('GEMINI_API_KEY')}`
+      },
+      body: JSON.stringify({
+        contents: [{
+          parts: [{
+            text: analysisPrompt
+          }]
+        }]
+      })
+    });
+
+    if (!geminiResponse.ok) {
+      throw new Error(`Gemini API error: ${geminiResponse.statusText}`);
     }
 
-    // Analyze each response
-    const results = responses.map(response => {
-      const analysis = analyzeSentiment(response.answer_text)
-      return {
-        question_id: response.id,
-        risk_level: analysis.risk_level,
-        probability: analysis.probability
+    const geminiData = await geminiResponse.json();
+    console.log('Gemini API response:', JSON.stringify(geminiData, null, 2));
+
+    let analysis;
+    try {
+      // Extract the JSON response from Gemini's text output
+      const responseText = geminiData.candidates[0].content.parts[0].text;
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Could not parse JSON from Gemini response');
       }
-    })
-
-    // Calculate overall risk level
-    const riskScores = { high: 3, medium: 2, low: 1 }
-    const averageRisk = results.reduce((acc, curr) => 
-      acc + riskScores[curr.risk_level as keyof typeof riskScores], 0) / results.length
-
-    const overall_risk_level = 
-      averageRisk > 2.5 ? 'high' :
-      averageRisk > 1.5 ? 'medium' : 'low'
+    } catch (error) {
+      console.error('Error parsing Gemini response:', error);
+      throw new Error('Failed to parse analysis results');
+    }
 
     // Update question set status and risk level
     const { error: updateSetError } = await supabaseClient
       .from('question_sets')
       .update({ 
         status: 'analyzed',
-        risk_level: overall_risk_level,
+        risk_level: analysis.overall_risk,
         completed_at: new Date().toISOString()
       })
       .eq('id', question_set_id)
@@ -79,7 +109,7 @@ serve(async (req) => {
     if (updateSetError) throw updateSetError
 
     // Update individual questions with their risk levels
-    for (const result of results) {
+    for (const result of analysis.responses) {
       const { error: updateError } = await supabaseClient
         .from('questions')
         .update({ 
@@ -98,7 +128,7 @@ serve(async (req) => {
         question_set_id: question_set_id,
         employee_id: questionSet.employee_id,
         hr_id: questionSet.hr_id,
-        overall_risk_level: overall_risk_level,
+        overall_risk_level: analysis.overall_risk,
         completed_at: new Date().toISOString()
       })
 
@@ -107,8 +137,9 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         status: 'success',
-        results: results,
-        overall_risk_level: overall_risk_level
+        results: analysis.responses,
+        overall_risk_level: analysis.overall_risk,
+        explanation: analysis.explanation
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
