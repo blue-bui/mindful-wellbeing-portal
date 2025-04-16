@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,6 +30,7 @@ interface QuestionListProps {
   isEmployee?: boolean;
   refetchQuestions?: () => void;
   loading?: boolean;
+  onSubmitAnswers?: (questionSetId: string, answers: any[]) => void;
 }
 
 const QuestionList: React.FC<QuestionListProps> = ({ 
@@ -38,6 +38,7 @@ const QuestionList: React.FC<QuestionListProps> = ({
   isEmployee = false,
   refetchQuestions,
   loading = false,
+  onSubmitAnswers
 }) => {
   const { user } = useAuth();
   const [questions, setQuestions] = useState<QuestionSetItem[]>(assignedQuestions);
@@ -84,7 +85,27 @@ const QuestionList: React.FC<QuestionListProps> = ({
     setSubmitting(questionSetId);
     
     try {
-      // Update each question with its answer
+      // If onSubmitAnswers prop is provided, use it (for mock data in EmployeeDashboard)
+      if (onSubmitAnswers) {
+        const answers = questions.map(q => ({
+          id: q.id,
+          answer_text: answersForThisSet[q.id] || q.answer_text
+        }));
+        
+        onSubmitAnswers(questionSetId, answers);
+        
+        // Clear answers for this set
+        setCurrentAnswers(prev => {
+          const newAnswers = {...prev};
+          delete newAnswers[questionSetId];
+          return newAnswers;
+        });
+        
+        setSubmitting(null);
+        return;
+      }
+      
+      // Otherwise use the database (real implementation)
       for (const question of questions) {
         const answer = answersForThisSet[question.id] || question.answer_text;
         if (answer) {

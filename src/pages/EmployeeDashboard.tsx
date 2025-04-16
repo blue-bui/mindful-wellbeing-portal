@@ -1,85 +1,109 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Layout from '../components/Layout';
 import QuestionList from '../components/QuestionList';
-import { Book, FileText, User, Info, ExternalLink } from 'lucide-react';
+import { Book, FileText, User, Info, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-
-// Mock data for the dashboard
-const mockAssignedQuestions = [
-  {
-    id: 'q123456789',
-    assignedDate: '2023-11-01',
-    dueDate: '2023-11-08',
-    status: 'pending' as const,
-    created_at: '2023-11-01T10:00:00Z',
-    questions: [
-      { 
-        id: '1', 
-        question_text: 'How often do you feel overwhelmed by work responsibilities?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '2', 
-        question_text: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '3', 
-        question_text: 'Have you experienced changes in your sleep patterns recently?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '4', 
-        question_text: 'Do you have someone you can talk to when you\'re feeling down?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '5', 
-        question_text: 'How often do you engage in activities you enjoy outside of work?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-    ]
-  }
-];
-
-const resources = [
-  {
-    title: 'Understanding Mental Health',
-    description: 'A comprehensive guide to understanding mental health and its importance in daily life.',
-    link: '#'
-  },
-  {
-    title: 'Stress Management Techniques',
-    description: 'Practical techniques for managing stress in the workplace and personal life.',
-    link: '#'
-  },
-  {
-    title: 'Crisis Support Resources',
-    description: 'Important contact information and resources for mental health crisis situations.',
-    link: '#'
-  },
-  {
-    title: 'Mindfulness Practices',
-    description: 'Learn about mindfulness and meditation practices that can improve mental wellbeing.',
-    link: '#'
-  }
-];
+import { supabase } from '../integrations/supabase/client';
+import { useAuth } from '../lib/authHelpers';
 
 const EmployeeDashboard = () => {
-  const handleSubmitAnswers = (questionSetId: string, answers: any[]) => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [assignedQuestions, setAssignedQuestions] = useState<any[]>([]);
+  const [userName, setUserName] = useState('Employee');
+
+  // Fetch user data and assigned questions
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!user) return;
+      
+      try {
+        // Get user profile
+        const { data: userProfile, error: userError } = await supabase
+          .from('user_profiles')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+          
+        if (userError) throw userError;
+        
+        if (userProfile) {
+          setUserName(userProfile.name);
+        }
+        
+        // Get question sets assigned to this employee
+        const { data: questionSets, error: setsError } = await supabase
+          .from('question_sets')
+          .select('*')
+          .eq('employee_id', user.id)
+          .order('created_at', { ascending: false });
+          
+        if (setsError) throw setsError;
+        
+        if (questionSets && questionSets.length > 0) {
+          // For each question set, get the questions
+          const questionsPromises = questionSets.map(async (set) => {
+            const { data: questions, error: questionsError } = await supabase
+              .from('questions')
+              .select('*')
+              .eq('question_set_id', set.id)
+              .order('created_at', { ascending: true });
+              
+            if (questionsError) throw questionsError;
+            
+            return {
+              ...set,
+              questions: questions || []
+            };
+          });
+          
+          const questionsData = await Promise.all(questionsPromises);
+          setAssignedQuestions(questionsData);
+        }
+      } catch (error: any) {
+        console.error('Error fetching data:', error);
+        toast.error('Failed to load your data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchData();
+  }, [user]);
+
+  const handleSubmitAnswers = async (questionSetId: string, answers: any[]) => {
     // In a real app, this would send the answers to the backend
     console.log('Submitting answers for set:', questionSetId, answers);
     toast.success('Your responses have been submitted successfully');
   };
+
+  // Resources for the wellbeing tab
+  const resources = [
+    {
+      title: 'Understanding Mental Health',
+      description: 'A comprehensive guide to understanding mental health and its importance in daily life.',
+      link: '#'
+    },
+    {
+      title: 'Stress Management Techniques',
+      description: 'Practical techniques for managing stress in the workplace and personal life.',
+      link: '#'
+    },
+    {
+      title: 'Crisis Support Resources',
+      description: 'Important contact information and resources for mental health crisis situations.',
+      link: '#'
+    },
+    {
+      title: 'Mindfulness Practices',
+      description: 'Learn about mindfulness and meditation practices that can improve mental wellbeing.',
+      link: '#'
+    }
+  ];
 
   return (
     <Layout>
@@ -88,7 +112,7 @@ const EmployeeDashboard = () => {
           <h1 className="text-3xl font-bold text-wellness-dark">Employee Dashboard</h1>
           <div className="flex items-center bg-wellness-light text-wellness-dark rounded-full px-4 py-2">
             <User size={16} className="mr-2" />
-            <span className="font-medium">John Doe</span>
+            <span className="font-medium">{userName}</span>
           </div>
         </div>
         
@@ -112,9 +136,9 @@ const EmployeeDashboard = () => {
                 </CardHeader>
                 <CardContent>
                   <QuestionList 
-                    assignedQuestions={mockAssignedQuestions} 
+                    assignedQuestions={assignedQuestions} 
                     isEmployee={true}
-                    onSubmitAnswers={handleSubmitAnswers}
+                    loading={loading}
                   />
                 </CardContent>
               </Card>
