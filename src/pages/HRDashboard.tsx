@@ -7,7 +7,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import Layout from '../components/Layout';
 import QuestionGenerator from '../components/QuestionGenerator';
 import QuestionList from '../components/QuestionList';
-import QuestionAnalyzer from '../components/QuestionAnalyzer';
 import { AlertCircle, BarChart2, User, FileText, Loader2 } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
 import { useAuth } from '../lib/authHelpers';
@@ -16,6 +15,7 @@ import { toast } from 'sonner';
 const HRDashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [employees, setEmployees] = useState([]);
   const [assignedQuestions, setAssignedQuestions] = useState([]);
   const [analysisResults, setAnalysisResults] = useState([]);
@@ -33,6 +33,7 @@ const HRDashboard = () => {
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       // Fetch employees
       const { data: employeesData, error: employeesError } = await supabase
@@ -42,11 +43,12 @@ const HRDashboard = () => {
         
       if (employeesError) throw employeesError;
       
-      // Fetch question sets
+      // Fetch question sets with associated user data
       const { data: questionSetsData, error: questionSetsError } = await supabase
         .from('question_sets')
         .select(`
           *,
+          user_profiles:user_profiles!employee_id(name, email),
           questions:questions(*)
         `)
         .order('created_at', { ascending: false });
@@ -79,9 +81,8 @@ const HRDashboard = () => {
       
       // Format question sets for QuestionList component
       const formattedQuestionSets = questionSetsData.map(qs => ({
-        id: qs.id,
-        created_at: qs.created_at,
-        status: qs.status,
+        ...qs,
+        employee_name: qs.user_profiles?.name || 'Unknown Employee',
         questions: qs.questions || []
       }));
       
@@ -92,8 +93,9 @@ const HRDashboard = () => {
         pendingAssessments,
         highRiskCount
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
+      setError('Failed to load dashboard data. Please try again later.');
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
@@ -136,6 +138,13 @@ const HRDashboard = () => {
             <span className="font-medium">{user?.user_metadata?.name || 'HR Manager'}</span>
           </div>
         </div>
+        
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         
         <Alert className="bg-wellness-blue/20 border-wellness-blue">
           <AlertCircle className="h-4 w-4 text-wellness-teal" />
@@ -201,7 +210,11 @@ const HRDashboard = () => {
           
           <TabsContent value="assigned">
             {assignedQuestions.length > 0 ? (
-              <QuestionList assignedQuestions={assignedQuestions} isEmployee={false} refetchQuestions={fetchData} />
+              <QuestionList 
+                assignedQuestions={assignedQuestions} 
+                isEmployee={false} 
+                refetchQuestions={fetchData} 
+              />
             ) : (
               <Card className="p-6 text-center">
                 <p className="text-muted-foreground">No assessments have been assigned yet.</p>

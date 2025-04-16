@@ -3,9 +3,10 @@ import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import Layout from '../components/Layout';
 import QuestionList from '../components/QuestionList';
-import { Book, FileText, User, Info, ExternalLink, Loader2 } from 'lucide-react';
+import { Book, FileText, User, Info, ExternalLink, Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../integrations/supabase/client';
 import { useAuth } from '../lib/authHelpers';
@@ -13,6 +14,7 @@ import { useAuth } from '../lib/authHelpers';
 const EmployeeDashboard = () => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [assignedQuestions, setAssignedQuestions] = useState<any[]>([]);
   const [userName, setUserName] = useState('Employee');
 
@@ -22,6 +24,9 @@ const EmployeeDashboard = () => {
       if (!user) return;
       
       try {
+        setLoading(true);
+        setError(null);
+        
         // Get user profile
         const { data: userProfile, error: userError } = await supabase
           .from('user_profiles')
@@ -63,9 +68,12 @@ const EmployeeDashboard = () => {
           
           const questionsData = await Promise.all(questionsPromises);
           setAssignedQuestions(questionsData);
+        } else {
+          setAssignedQuestions([]);
         }
       } catch (error: any) {
         console.error('Error fetching data:', error);
+        setError('Failed to load your data. Please try again later.');
         toast.error('Failed to load your data');
       } finally {
         setLoading(false);
@@ -76,9 +84,76 @@ const EmployeeDashboard = () => {
   }, [user]);
 
   const handleSubmitAnswers = async (questionSetId: string, answers: any[]) => {
-    // In a real app, this would send the answers to the backend
-    console.log('Submitting answers for set:', questionSetId, answers);
-    toast.success('Your responses have been submitted successfully');
+    if (!user) {
+      toast.error('You must be logged in to submit answers');
+      return;
+    }
+    
+    try {
+      // Update each question with the provided answer
+      for (const answer of answers) {
+        const { error } = await supabase
+          .from('questions')
+          .update({
+            answer_text: answer.answer_text,
+            status: 'answered',
+            answered_at: new Date().toISOString()
+          })
+          .eq('id', answer.id);
+          
+        if (error) throw error;
+      }
+      
+      // Update the question set status
+      const { error } = await supabase
+        .from('question_sets')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', questionSetId);
+        
+      if (error) throw error;
+      
+      toast.success('Your responses have been submitted successfully');
+      
+      // Refresh the data
+      setLoading(true);
+      const { data: questionSets, error: setsError } = await supabase
+        .from('question_sets')
+        .select('*')
+        .eq('employee_id', user.id)
+        .order('created_at', { ascending: false });
+        
+      if (setsError) throw setsError;
+      
+      if (questionSets && questionSets.length > 0) {
+        const questionsPromises = questionSets.map(async (set) => {
+          const { data: questions, error: questionsError } = await supabase
+            .from('questions')
+            .select('*')
+            .eq('question_set_id', set.id)
+            .order('created_at', { ascending: true });
+            
+          if (questionsError) throw questionsError;
+          
+          return {
+            ...set,
+            questions: questions || []
+          };
+        });
+        
+        const questionsData = await Promise.all(questionsPromises);
+        setAssignedQuestions(questionsData);
+      } else {
+        setAssignedQuestions([]);
+      }
+      setLoading(false);
+      
+    } catch (error: any) {
+      console.error('Error submitting answers:', error);
+      toast.error('Failed to submit your responses');
+    }
   };
 
   // Resources for the wellbeing tab
@@ -105,6 +180,19 @@ const EmployeeDashboard = () => {
     }
   ];
 
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-wellness-teal" />
+            <p>Loading dashboard data...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -115,6 +203,13 @@ const EmployeeDashboard = () => {
             <span className="font-medium">{userName}</span>
           </div>
         </div>
+        
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         
         <Tabs defaultValue="assessments" className="space-y-4">
           <TabsList>
@@ -139,6 +234,7 @@ const EmployeeDashboard = () => {
                     assignedQuestions={assignedQuestions} 
                     isEmployee={true}
                     loading={loading}
+                    onSubmitAnswers={handleSubmitAnswers}
                   />
                 </CardContent>
               </Card>

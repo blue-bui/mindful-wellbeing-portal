@@ -6,10 +6,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../integrations/supabase/client';
 import { useAuth } from '../lib/authHelpers';
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 interface Employee {
   id: string;
@@ -31,9 +32,13 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchEmployees = async () => {
+      setIsLoading(true);
+      setError(null);
       try {
         const { data, error } = await supabase
           .from('user_profiles')
@@ -44,7 +49,10 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
         setEmployees(data || []);
       } catch (error: any) {
         console.error('Error fetching employees:', error);
+        setError('Failed to load employees. Please try again later.');
         toast.error('Failed to load employees');
+      } finally {
+        setIsLoading(false);
       }
     };
     
@@ -57,11 +65,20 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
       return;
     }
 
+    if (!selectedEmployeeId) {
+      toast.error('Please select an employee');
+      return;
+    }
+
     setIsGenerating(true);
+    setError(null);
     
     try {
       const { data, error } = await supabase.functions.invoke('generate-questions', {
-        body: { prompt: prompt }
+        body: { 
+          prompt: prompt,
+          employeeId: selectedEmployeeId
+        }
       });
 
       if (error) {
@@ -79,6 +96,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
       
     } catch (error: any) {
       console.error('Error generating questions:', error);
+      setError(error.message || 'Failed to generate questions');
       toast.error(error.message || 'Failed to generate questions');
     } finally {
       setIsGenerating(false);
@@ -102,6 +120,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
     }
 
     setIsSubmitting(true);
+    setError(null);
     
     try {
       // First, create a question set entry
@@ -133,18 +152,21 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
         
       if (questionsError) throw questionsError;
       
+      // Get employee information for notification
+      const selectedEmployee = employees.find(emp => emp.user_id === selectedEmployeeId);
+      
       // If send email is checked, we would send an email notification here
-      // This is a placeholder for future email notification functionality
-      if (sendEmail) {
-        const employeeName = employees.find(emp => emp.user_id === selectedEmployeeId)?.name || 'Employee';
-        console.log(`Email notification would be sent to ${employeeName}`);
+      if (sendEmail && selectedEmployee) {
+        console.log(`Email notification would be sent to ${selectedEmployee.name} at ${selectedEmployee.email}`);
+        // In a real implementation, you would call an edge function to send the email
+        // For now, we'll just log it
       }
       
       setPrompt('');
       setSelectedEmployeeId('');
       setGeneratedQuestions([]);
       
-      toast.success(`Questions assigned to employee`);
+      toast.success(`Questions assigned to ${selectedEmployee?.name || 'employee'}`);
       
       // Call the callback if provided
       if (onQuestionGenerated) {
@@ -153,6 +175,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
       
     } catch (error: any) {
       console.error('Error assigning questions:', error);
+      setError(error.message || 'Failed to assign questions');
       toast.error(error.message || 'Failed to assign questions');
     } finally {
       setIsSubmitting(false);
@@ -168,8 +191,44 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        
         <div className="space-y-2">
-          <Label htmlFor="prompt">Prompt for Question Generation</Label>
+          <Label htmlFor="employee">1. Select Employee</Label>
+          <Select
+            value={selectedEmployeeId}
+            onValueChange={setSelectedEmployeeId}
+            disabled={isLoading || isGenerating || isSubmitting}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Select an employee" />
+            </SelectTrigger>
+            <SelectContent>
+              {isLoading ? (
+                <div className="flex items-center justify-center p-2">
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Loading employees...
+                </div>
+              ) : employees.length > 0 ? (
+                employees.map((employee) => (
+                  <SelectItem key={employee.user_id} value={employee.user_id}>
+                    {employee.name} ({employee.email})
+                  </SelectItem>
+                ))
+              ) : (
+                <div className="p-2 text-muted-foreground">No employees found</div>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="prompt">2. Enter Context About Employee</Label>
           <Textarea
             id="prompt"
             placeholder="Enter a prompt describing the employee context, such as recent behaviors or concerns..."
@@ -177,6 +236,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
             className="resize-none"
+            disabled={!selectedEmployeeId || isGenerating || isSubmitting}
           />
           <p className="text-xs text-muted-foreground">
             Example: "Employee has been showing signs of withdrawal and decreased participation in team activities"
@@ -185,7 +245,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
         
         <Button 
           onClick={generateQuestions} 
-          disabled={isGenerating || !prompt.trim()}
+          disabled={isGenerating || isSubmitting || !prompt.trim() || !selectedEmployeeId}
           className="w-full bg-wellness-teal hover:bg-wellness-teal/90"
         >
           {isGenerating ? (
@@ -194,7 +254,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
               Generating Questions...
             </>
           ) : (
-            'Generate Questions'
+            '3. Generate Questions'
           )}
         </Button>
         
@@ -213,25 +273,6 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
         
         {generatedQuestions.length > 0 && (
           <div className="border-t pt-4 mt-4 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="employee">Select Employee</Label>
-              <Select
-                value={selectedEmployeeId}
-                onValueChange={setSelectedEmployeeId}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select an employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  {employees.map((employee) => (
-                    <SelectItem key={employee.user_id} value={employee.user_id}>
-                      {employee.name} ({employee.email})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
             <div className="flex items-center space-x-2">
               <Switch 
                 id="send-email" 
@@ -243,7 +284,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
             
             <Button 
               onClick={assignQuestions} 
-              disabled={isSubmitting || !selectedEmployeeId}
+              disabled={isSubmitting || generatedQuestions.length === 0}
               className="w-full"
             >
               {isSubmitting ? (
@@ -252,7 +293,7 @@ const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerat
                   Assigning Questions...
                 </>
               ) : (
-                'Assign Questions to Employee'
+                '4. Assign Questions to Employee'
               )}
             </Button>
           </div>

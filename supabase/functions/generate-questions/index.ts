@@ -21,16 +21,20 @@ serve(async (req) => {
       throw new Error('GEMINI_API_KEY is not set in environment variables')
     }
 
-    const { prompt } = await req.json()
+    const { prompt, employeeId } = await req.json()
 
     if (!prompt || typeof prompt !== 'string' || prompt.trim() === '') {
       throw new Error('Prompt is required and must be a non-empty string')
     }
 
+    if (!employeeId) {
+      throw new Error('Employee ID is required')
+    }
+
+    console.log(`Generating questions for employee ${employeeId} with prompt: ${prompt.substring(0, 50)}...`)
+
     // Create context-aware prompt for generating psychological assessment questions
     const enhancedPrompt = `Based on this context about an employee: "${prompt}", generate 10 psychologically-informed questions that can help assess potential suicidal tendencies. The questions should be professional, empathetic, and indirect. Focus on emotional states, work-life balance, and mental well-being. Format the response as a JSON array of strings.`
-
-    console.log(`Sending request to Gemini API with prompt: ${prompt.substring(0, 50)}...`)
 
     const response = await fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
       method: 'POST',
@@ -89,10 +93,13 @@ serve(async (req) => {
       throw new Error('No valid questions generated')
     }
 
-    console.log(`Successfully generated ${questions.length} questions`)
+    console.log(`Successfully generated ${questions.length} questions for employee ${employeeId}`)
 
     return new Response(
-      JSON.stringify({ questions: questions.slice(0, 10) }),
+      JSON.stringify({ 
+        questions: questions.slice(0, 10),
+        employeeId: employeeId
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 

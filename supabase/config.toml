@@ -1,2 +1,8 @@
 
 project_id = "xuqgkncmciymfqrudrpb"
+
+[functions.generate-questions]
+verify_jwt = false
+
+[functions.analyze-responses]
+verify_jwt = false
