@@ -1,102 +1,131 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import Layout from '../components/Layout';
 import QuestionGenerator from '../components/QuestionGenerator';
 import QuestionList from '../components/QuestionList';
-import { AlertCircle, BarChart2, User, FileText } from 'lucide-react';
-
-// Mock data for the dashboard
-const employeeData = [
-  { id: '1', name: 'John Doe', email: 'john.doe@example.com', department: 'Engineering', risk: 'low' },
-  { id: '2', name: 'Jane Smith', email: 'jane.smith@example.com', department: 'Marketing', risk: 'medium' },
-  { id: '3', name: 'Robert Johnson', email: 'robert.j@example.com', department: 'Sales', risk: 'high' },
-];
-
-const mockAssignedQuestions = [
-  {
-    id: 'q123456789',
-    assignedDate: '2023-10-15',
-    dueDate: '2023-10-22',
-    status: 'completed' as const,
-    created_at: '2023-10-15T10:00:00Z',
-    questions: [
-      { 
-        id: '1', 
-        question_text: 'How often do you feel overwhelmed by work responsibilities?', 
-        answer_text: 'I feel overwhelmed about twice a week, usually during project deadlines.', 
-        status: 'answered' as const 
-      },
-      { 
-        id: '2', 
-        question_text: 'On a scale of 1-10, how would you rate your overall satisfaction with life currently?', 
-        answer_text: '6 - Generally satisfied but there is room for improvement.', 
-        status: 'answered' as const 
-      },
-      { 
-        id: '3', 
-        question_text: 'Have you experienced changes in your sleep patterns recently?', 
-        answer_text: 'Yes, I have been having trouble falling asleep for the past two weeks.', 
-        status: 'answered' as const 
-      },
-      { 
-        id: '4', 
-        question_text: 'Do you have someone you can talk to when you\'re feeling down?', 
-        answer_text: 'I usually talk to my partner or my best friend when I feel down.', 
-        status: 'answered' as const 
-      },
-      { 
-        id: '5', 
-        question_text: 'How often do you engage in activities you enjoy outside of work?', 
-        answer_text: 'About once or twice a week, mostly on weekends.', 
-        status: 'answered' as const 
-      },
-    ]
-  },
-  {
-    id: 'q987654321',
-    assignedDate: '2023-11-01',
-    dueDate: '2023-11-08',
-    status: 'pending' as const,
-    created_at: '2023-11-01T10:00:00Z',
-    questions: [
-      { 
-        id: '1', 
-        question_text: 'Have you experienced feelings of hopelessness in the past month?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '2', 
-        question_text: 'Do you find it difficult to concentrate on tasks?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '3', 
-        question_text: 'Have you noticed changes in your appetite or eating habits?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '4', 
-        question_text: 'How would you describe your energy levels throughout the day?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-      { 
-        id: '5', 
-        question_text: 'Do you ever feel that life is not worth living?', 
-        answer_text: '', 
-        status: 'pending' as const 
-      },
-    ]
-  }
-];
+import QuestionAnalyzer from '../components/QuestionAnalyzer';
+import { AlertCircle, BarChart2, User, FileText, Loader2 } from 'lucide-react';
+import { supabase } from '../integrations/supabase/client';
+import { useAuth } from '../lib/authHelpers';
+import { toast } from 'sonner';
 
 const HRDashboard = () => {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [employees, setEmployees] = useState([]);
+  const [assignedQuestions, setAssignedQuestions] = useState([]);
+  const [analysisResults, setAnalysisResults] = useState([]);
+  const [stats, setStats] = useState({
+    totalEmployees: 0,
+    pendingAssessments: 0,
+    highRiskCount: 0
+  });
+
+  useEffect(() => {
+    if (user) {
+      fetchData();
+    }
+  }, [user]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      // Fetch employees
+      const { data: employeesData, error: employeesError } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('role', 'employee');
+        
+      if (employeesError) throw employeesError;
+      
+      // Fetch question sets
+      const { data: questionSetsData, error: questionSetsError } = await supabase
+        .from('question_sets')
+        .select(`
+          *,
+          questions:questions(*)
+        `)
+        .order('created_at', { ascending: false });
+        
+      if (questionSetsError) throw questionSetsError;
+      
+      // Fetch analysis results
+      const { data: analysisData, error: analysisError } = await supabase
+        .from('question_sets')
+        .select(`
+          id,
+          employee_id,
+          prompt,
+          status,
+          risk_level,
+          created_at,
+          completed_at,
+          user_profiles:user_profiles!employee_id(name, email)
+        `)
+        .eq('status', 'analyzed')
+        .order('created_at', { ascending: false });
+        
+      if (analysisError) throw analysisError;
+      
+      // Calculate stats
+      const pendingAssessments = questionSetsData.filter(qs => qs.status === 'pending').length;
+      const highRiskCount = analysisData.filter(ar => ar.risk_level === 'high').length;
+      
+      setEmployees(employeesData || []);
+      
+      // Format question sets for QuestionList component
+      const formattedQuestionSets = questionSetsData.map(qs => ({
+        id: qs.id,
+        created_at: qs.created_at,
+        status: qs.status,
+        questions: qs.questions || []
+      }));
+      
+      setAssignedQuestions(formattedQuestionSets);
+      setAnalysisResults(analysisData || []);
+      setStats({
+        totalEmployees: employeesData?.length || 0,
+        pendingAssessments,
+        highRiskCount
+      });
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getRiskColor = (risk) => {
+    switch (risk) {
+      case 'low':
+        return 'bg-green-100 text-green-800';
+      case 'medium':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'high':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-wellness-teal" />
+            <p>Loading dashboard data...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -104,7 +133,7 @@ const HRDashboard = () => {
           <h1 className="text-3xl font-bold text-wellness-dark">HR Dashboard</h1>
           <div className="flex items-center bg-wellness-light text-wellness-dark rounded-full px-4 py-2">
             <User size={16} className="mr-2" />
-            <span className="font-medium">HR Manager</span>
+            <span className="font-medium">{user?.user_metadata?.name || 'HR Manager'}</span>
           </div>
         </div>
         
@@ -124,7 +153,7 @@ const HRDashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">Total Employees</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{employeeData.length}</div>
+              <div className="text-2xl font-bold">{stats.totalEmployees}</div>
               <p className="text-xs text-muted-foreground mt-1">Monitored employees</p>
             </CardContent>
           </Card>
@@ -134,7 +163,7 @@ const HRDashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">Assessments Pending</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">2</div>
+              <div className="text-2xl font-bold">{stats.pendingAssessments}</div>
               <p className="text-xs text-muted-foreground mt-1">Due this week</p>
             </CardContent>
           </Card>
@@ -144,7 +173,7 @@ const HRDashboard = () => {
               <CardTitle className="text-sm font-medium text-muted-foreground">High Risk Indicators</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-wellness-accent">1</div>
+              <div className="text-2xl font-bold text-wellness-accent">{stats.highRiskCount}</div>
               <p className="text-xs text-muted-foreground mt-1">Requires immediate attention</p>
             </CardContent>
           </Card>
@@ -167,11 +196,17 @@ const HRDashboard = () => {
           </TabsList>
           
           <TabsContent value="generate" className="space-y-4">
-            <QuestionGenerator />
+            <QuestionGenerator onQuestionGenerated={fetchData} />
           </TabsContent>
           
           <TabsContent value="assigned">
-            <QuestionList assignedQuestions={mockAssignedQuestions} isEmployee={false} />
+            {assignedQuestions.length > 0 ? (
+              <QuestionList assignedQuestions={assignedQuestions} isEmployee={false} refetchQuestions={fetchData} />
+            ) : (
+              <Card className="p-6 text-center">
+                <p className="text-muted-foreground">No assessments have been assigned yet.</p>
+              </Card>
+            )}
           </TabsContent>
           
           <TabsContent value="results">
@@ -183,39 +218,57 @@ const HRDashboard = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {employeeData.map((employee) => (
-                    <div key={employee.id} className="p-4 border rounded-md">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <h3 className="font-medium">{employee.name}</h3>
-                          <p className="text-sm text-muted-foreground">{employee.department} • {employee.email}</p>
-                        </div>
-                        <div className={`px-3 py-1 rounded-full text-sm ${
-                          employee.risk === 'low' 
-                            ? 'bg-green-100 text-green-800' 
-                            : employee.risk === 'medium'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-red-100 text-red-800'
-                        }`}>
-                          {employee.risk === 'low' ? 'Low Risk' : employee.risk === 'medium' ? 'Medium Risk' : 'High Risk'}
-                        </div>
-                      </div>
-                      
-                      {employee.risk === 'high' && (
-                        <Alert className="mt-3 bg-red-50 border-red-200">
-                          <AlertCircle className="h-4 w-4 text-red-600" />
-                          <AlertTitle className="text-red-600 font-semibold">Attention Required</AlertTitle>
-                          <AlertDescription className="text-sm text-red-600">
-                            This employee's responses indicate potential risk factors. Consider 
-                            scheduling a wellness check or providing resources for professional support. 
-                            Contact a mental health professional immediately.
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                {analysisResults.length > 0 ? (
+                  <div className="space-y-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Employee</TableHead>
+                          <TableHead>Date Completed</TableHead>
+                          <TableHead>Risk Level</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {analysisResults.map((result) => (
+                          <TableRow key={result.id}>
+                            <TableCell>
+                              <div>
+                                <p className="font-medium">{result.user_profiles?.name || 'Unknown Employee'}</p>
+                                <p className="text-sm text-muted-foreground">{result.user_profiles?.email || 'No email'}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              {result.completed_at ? new Date(result.completed_at).toLocaleDateString() : 'Not completed'}
+                            </TableCell>
+                            <TableCell>
+                              <div className={`px-3 py-1 rounded-full text-sm inline-block ${getRiskColor(result.risk_level)}`}>
+                                {result.risk_level === 'low' ? 'Low Risk' : 
+                                 result.risk_level === 'medium' ? 'Medium Risk' : 
+                                 result.risk_level === 'high' ? 'High Risk' : 'Unknown'}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <button 
+                                className="text-wellness-teal hover:underline text-sm"
+                                onClick={() => {
+                                  // This would ideally open a modal or navigate to a detailed view
+                                  toast.info('Detailed view not implemented yet');
+                                }}
+                              >
+                                View Details
+                              </button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center p-6">
+                    <p className="text-muted-foreground">No analysis results available yet.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

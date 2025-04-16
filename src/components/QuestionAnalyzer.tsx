@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { supabase } from '../lib/supabase';
-import { Question, QuestionSet } from '../lib/supabase';
+import { supabase } from '../integrations/supabase/client';
+import { useAuth } from '../lib/authHelpers';
 
 interface QuestionAnalyzerProps {
   questionSetId: string;
@@ -15,6 +15,7 @@ interface QuestionAnalyzerProps {
 }
 
 const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyzerProps) => {
+  const { user } = useAuth();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<{
     overallRisk: string;
@@ -28,9 +29,15 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
   } | null>(null);
 
   const analyzeResponses = async () => {
+    if (!user) {
+      toast.error('You must be logged in to analyze responses');
+      return;
+    }
+    
     setIsAnalyzing(true);
     
     try {
+      // Fetch the answered questions for this set
       const { data: questions, error: questionsError } = await supabase
         .from('questions')
         .select('*')
@@ -45,53 +52,46 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         return;
       }
       
-      const responses = questions.map((q: Question) => ({
+      // Prepare data for analysis
+      const responses = questions.map((q) => ({
         id: q.id,
         answer_text: q.answer_text || ''
       }));
       
-      const apiUrl = 'http://localhost:5000/api/analyze';
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      // Call our edge function to analyze the responses
+      const { data, error } = await supabase.functions.invoke('analyze-responses', {
+        body: {
           question_set_id: questionSetId,
           responses
-        }),
+        },
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to analyze responses');
-      }
+      if (error) throw error;
       
-      const result = await response.json();
-      
-      if (result.status !== 'success') {
+      if (!data || data.status !== 'success') {
         throw new Error('Analysis failed');
       }
       
-      const formattedResults = result.results.map((r: any, index: number) => ({
+      // Format the results for display
+      const formattedResults = data.results.map((r, index) => ({
         id: r.question_id,
         risk: r.risk_level,
         probability: r.probability,
-        question: questions[index].question_text,
-        answer: questions[index].answer_text || '',
+        question: questions[index]?.question_text || '',
+        answer: questions[index]?.answer_text || '',
       }));
       
       setAnalysisResult({
-        overallRisk: result.overall_risk_level,
+        overallRisk: data.overall_risk_level,
         questionResults: formattedResults,
       });
       
+      // Update the question set status and risk level in the database
       const { error: updateError } = await supabase
         .from('question_sets')
         .update({ 
           status: 'analyzed',
-          risk_level: result.overall_risk_level 
+          risk_level: data.overall_risk_level 
         })
         .eq('id', questionSetId);
       
@@ -100,7 +100,8 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         toast.error('Error updating analysis results in database');
       }
       
-      for (const resultItem of result.results) {
+      // Update each question's status and risk level
+      for (const resultItem of data.results) {
         const { error: questionUpdateError } = await supabase
           .from('questions')
           .update({ 
@@ -114,6 +115,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         }
       }
       
+      // Get the question set details
       const { data: questionSet } = await supabase
         .from('question_sets')
         .select('*')
@@ -121,13 +123,14 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         .single();
         
       if (questionSet) {
+        // Create a history record
         const { error: historyError } = await supabase
           .from('question_history')
           .insert({
             question_set_id: questionSetId,
             employee_id: questionSet.employee_id,
             hr_id: questionSet.hr_id,
-            overall_risk_level: result.overall_risk_level,
+            overall_risk_level: data.overall_risk_level,
             completed_at: new Date().toISOString()
           });
           
@@ -136,8 +139,9 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         }
       }
       
+      // Call the completion callback if provided
       if (onAnalysisComplete) {
-        onAnalysisComplete(result.overall_risk_level);
+        onAnalysisComplete(data.overall_risk_level);
       }
       
       toast.success('Analysis completed successfully');
@@ -204,7 +208,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
             
             <p className="text-sm text-muted-foreground mt-4">
               The system will analyze all responses to detect potential signs of distress
-              using a machine learning model trained on relevant datasets.
+              using a sentiment analysis algorithm trained on relevant datasets.
             </p>
           </div>
         ) : (

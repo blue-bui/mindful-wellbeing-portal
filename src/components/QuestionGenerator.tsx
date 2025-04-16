@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '../integrations/supabase/client';
+import { useAuth } from '../lib/authHelpers';
 
 interface Employee {
   id: string;
@@ -16,7 +18,12 @@ interface Employee {
   email: string;
 }
 
-const QuestionGenerator = () => {
+interface QuestionGeneratorProps {
+  onQuestionGenerated?: () => void;
+}
+
+const QuestionGenerator: React.FC<QuestionGeneratorProps> = ({ onQuestionGenerated }) => {
+  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -57,9 +64,13 @@ const QuestionGenerator = () => {
         body: { prompt: prompt }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error from edge function:', error);
+        throw new Error(`Failed to generate questions: ${error.message}`);
+      }
       
       if (!data.questions || !Array.isArray(data.questions)) {
+        console.error('Invalid response from question generator:', data);
         throw new Error('Invalid response from question generator');
       }
 
@@ -75,6 +86,11 @@ const QuestionGenerator = () => {
   };
 
   const assignQuestions = async () => {
+    if (!user) {
+      toast.error('You must be logged in to assign questions');
+      return;
+    }
+    
     if (!selectedEmployeeId) {
       toast.error('Please select an employee');
       return;
@@ -93,6 +109,7 @@ const QuestionGenerator = () => {
         .from('question_sets')
         .insert({
           employee_id: selectedEmployeeId,
+          hr_id: user.id,
           prompt: prompt,
           status: 'pending'
         })
@@ -105,6 +122,7 @@ const QuestionGenerator = () => {
       const questionsToInsert = generatedQuestions.map(question => ({
         question_set_id: questionSet.id,
         employee_id: selectedEmployeeId,
+        hr_id: user.id,
         question_text: question,
         status: 'pending'
       }));
@@ -115,17 +133,28 @@ const QuestionGenerator = () => {
         
       if (questionsError) throw questionsError;
       
-      setIsSubmitting(false);
-      toast.success(`Questions assigned to employee`);
+      // If send email is checked, we would send an email notification here
+      // This is a placeholder for future email notification functionality
+      if (sendEmail) {
+        const employeeName = employees.find(emp => emp.user_id === selectedEmployeeId)?.name || 'Employee';
+        console.log(`Email notification would be sent to ${employeeName}`);
+      }
       
-      // Reset form
       setPrompt('');
       setSelectedEmployeeId('');
       setGeneratedQuestions([]);
       
+      toast.success(`Questions assigned to employee`);
+      
+      // Call the callback if provided
+      if (onQuestionGenerated) {
+        onQuestionGenerated();
+      }
+      
     } catch (error: any) {
       console.error('Error assigning questions:', error);
       toast.error(error.message || 'Failed to assign questions');
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -143,14 +172,14 @@ const QuestionGenerator = () => {
           <Label htmlFor="prompt">Prompt for Question Generation</Label>
           <Textarea
             id="prompt"
-            placeholder="Enter a prompt describing the type of assessment you want to create..."
+            placeholder="Enter a prompt describing the employee context, such as recent behaviors or concerns..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             rows={4}
             className="resize-none"
           />
           <p className="text-xs text-muted-foreground">
-            Example: "Create questions to assess an employee's mental wellbeing and stress levels"
+            Example: "Employee has been showing signs of withdrawal and decreased participation in team activities"
           </p>
         </div>
         
