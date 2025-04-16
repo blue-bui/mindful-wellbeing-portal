@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,6 +6,14 @@ import { Textarea } from "@/components/ui/textarea";
 import Layout from '../components/Layout';
 import { ChevronLeft, ChevronRight, Send, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '../integrations/supabase/client';
+
+interface Question {
+  id: string;
+  question_text: string;
+  answer_text?: string;
+  status: string;
+}
 
 const QuestionResponse = () => {
   const [searchParams] = useSearchParams();
@@ -16,32 +23,39 @@ const QuestionResponse = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
-  const [questions, setQuestions] = useState<string[]>([]);
+  const [questions, setQuestions] = useState<Question[]>([]);
 
   useEffect(() => {
-    // In a real app, this would fetch the questions from the backend
-    // based on the questionSetId parameter
-    console.log('Fetching questions for set ID:', questionSetId);
-    
-    // Simulate API call to fetch questions
-    setTimeout(() => {
-      const mockQuestions = [
-        "How often do you feel overwhelmed by work responsibilities?",
-        "On a scale of 1-10, how would you rate your overall satisfaction with life currently?",
-        "Have you experienced changes in your sleep patterns recently?",
-        "Do you have someone you can talk to when you're feeling down?",
-        "How often do you engage in activities you enjoy outside of work?",
-        "Have you experienced feelings of hopelessness in the past month?",
-        "Do you find it difficult to concentrate on tasks?",
-        "Have you noticed changes in your appetite or eating habits?",
-        "How would you describe your energy levels throughout the day?",
-        "Do you ever feel that life is not worth living?"
-      ];
-      
-      setQuestions(mockQuestions);
-      setAnswers(new Array(mockQuestions.length).fill(''));
-      setIsLoading(false);
-    }, 1500);
+    const fetchQuestions = async () => {
+      if (!questionSetId) {
+        toast.error('No question set ID provided');
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('question_set_id', questionSetId)
+          .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        if (!data || data.length === 0) {
+          throw new Error('No questions found for this set');
+        }
+
+        setQuestions(data);
+        setAnswers(data.map(q => q.answer_text || ''));
+        setIsLoading(false);
+      } catch (error: any) {
+        console.error('Error fetching questions:', error);
+        toast.error(error.message || 'Failed to load questions');
+        setIsLoading(false);
+      }
+    };
+
+    fetchQuestions();
   }, [questionSetId]);
 
   const handleAnswerChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -62,8 +76,7 @@ const QuestionResponse = () => {
     }
   };
 
-  const handleSubmit = () => {
-    // Check if all questions have been answered
+  const handleSubmit = async () => {
     const unansweredQuestions = answers.filter(answer => !answer.trim()).length;
     
     if (unansweredQuestions > 0) {
@@ -73,17 +86,43 @@ const QuestionResponse = () => {
     
     setIsSubmitting(true);
     
-    // In a real app, this would send the answers to the backend
-    console.log('Submitting answers:', answers);
-    
-    // Simulate API call to submit answers
-    setTimeout(() => {
-      setIsSubmitting(false);
+    try {
+      const updatePromises = questions.map((question, index) => 
+        supabase
+          .from('questions')
+          .update({
+            answer_text: answers[index],
+            status: 'answered',
+            answered_at: new Date().toISOString()
+          })
+          .eq('id', question.id)
+      );
+
+      const results = await Promise.all(updatePromises);
+      const errors = results.filter(result => result.error);
+
+      if (errors.length > 0) {
+        throw new Error('Failed to save some answers');
+      }
+
+      const { error: setError } = await supabase
+        .from('question_sets')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString()
+        })
+        .eq('id', questionSetId);
+
+      if (setError) throw setError;
+
       toast.success('Your responses have been submitted successfully');
-      
-      // Redirect to employee dashboard
       window.location.href = '/employee-dashboard';
-    }, 1500);
+    } catch (error: any) {
+      console.error('Error submitting answers:', error);
+      toast.error(error.message || 'Failed to submit answers');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (isLoading) {
@@ -135,13 +174,13 @@ const QuestionResponse = () => {
         <Card>
           <CardHeader>
             <CardTitle className="text-xl">
-              {questions[currentQuestionIndex]}
+              {questions[currentQuestionIndex]?.question_text}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <Textarea
               placeholder="Type your answer here..."
-              value={answers[currentQuestionIndex]}
+              value={answers[currentQuestionIndex] || ''}
               onChange={handleAnswerChange}
               rows={5}
               className="resize-none"

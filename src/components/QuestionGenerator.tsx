@@ -1,16 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/authHelpers';
+import { supabase } from '../integrations/supabase/client';
 
 interface Employee {
   id: string;
@@ -20,7 +17,6 @@ interface Employee {
 }
 
 const QuestionGenerator = () => {
-  const { user } = useAuth();
   const [prompt, setPrompt] = useState('');
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -28,19 +24,16 @@ const QuestionGenerator = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatedQuestions, setGeneratedQuestions] = useState<string[]>([]);
-  
-  // Fetch employees when component mounts
+
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
-        // Fetch all users with 'employee' role
         const { data, error } = await supabase
           .from('user_profiles')
           .select('*')
           .eq('role', 'employee');
           
         if (error) throw error;
-        
         setEmployees(data || []);
       } catch (error: any) {
         console.error('Error fetching employees:', error);
@@ -51,7 +44,6 @@ const QuestionGenerator = () => {
     fetchEmployees();
   }, []);
 
-  // This would normally call the Gemini API through Flask backend
   const generateQuestions = async () => {
     if (!prompt.trim()) {
       toast.error('Please enter a prompt');
@@ -61,30 +53,23 @@ const QuestionGenerator = () => {
     setIsGenerating(true);
     
     try {
-      // In a real implementation, this would call your Flask API with Gemini
-      // For now, we'll simulate the API call with a timeout and mock questions
-      setTimeout(() => {
-        const mockQuestions = [
-          "How often do you feel overwhelmed by work responsibilities?",
-          "On a scale of 1-10, how would you rate your overall satisfaction with life currently?",
-          "Have you experienced changes in your sleep patterns recently?",
-          "Do you have someone you can talk to when you're feeling down?",
-          "How often do you engage in activities you enjoy outside of work?",
-          "Have you experienced feelings of hopelessness in the past month?",
-          "Do you find it difficult to concentrate on tasks?",
-          "Have you noticed changes in your appetite or eating habits?",
-          "How would you describe your energy levels throughout the day?",
-          "Do you ever feel that life is not worth living?"
-        ];
-        
-        setGeneratedQuestions(mockQuestions);
-        setIsGenerating(false);
-        toast.success('Questions generated successfully');
-      }, 2000);
+      const { data, error } = await supabase.functions.invoke('generate-questions', {
+        body: { prompt: prompt }
+      });
+
+      if (error) throw error;
       
-    } catch (error) {
+      if (!data.questions || !Array.isArray(data.questions)) {
+        throw new Error('Invalid response from question generator');
+      }
+
+      setGeneratedQuestions(data.questions);
+      toast.success('Questions generated successfully');
+      
+    } catch (error: any) {
       console.error('Error generating questions:', error);
-      toast.error('Failed to generate questions');
+      toast.error(error.message || 'Failed to generate questions');
+    } finally {
       setIsGenerating(false);
     }
   };
@@ -103,22 +88,10 @@ const QuestionGenerator = () => {
     setIsSubmitting(true);
     
     try {
-      if (!user) {
-        throw new Error('You must be logged in to assign questions');
-      }
-      
-      // Get the selected employee data
-      const selectedEmployee = employees.find(emp => emp.user_id === selectedEmployeeId);
-      
-      if (!selectedEmployee) {
-        throw new Error('Selected employee not found');
-      }
-      
       // First, create a question set entry
       const { data: questionSet, error: setError } = await supabase
         .from('question_sets')
         .insert({
-          hr_id: user.id,
           employee_id: selectedEmployeeId,
           prompt: prompt,
           status: 'pending'
@@ -132,7 +105,6 @@ const QuestionGenerator = () => {
       const questionsToInsert = generatedQuestions.map(question => ({
         question_set_id: questionSet.id,
         employee_id: selectedEmployeeId,
-        hr_id: user.id,
         question_text: question,
         status: 'pending'
       }));
@@ -143,14 +115,8 @@ const QuestionGenerator = () => {
         
       if (questionsError) throw questionsError;
       
-      // In a real implementation, you would call Resend API to send email
-      if (sendEmail && selectedEmployee.email) {
-        console.log(`Sending email to ${selectedEmployee.email}`);
-        // This would be an API call to your Flask backend to send an email
-      }
-      
       setIsSubmitting(false);
-      toast.success(`Questions assigned to ${selectedEmployee.name}${sendEmail ? ' and email sent' : ''}`);
+      toast.success(`Questions assigned to employee`);
       
       // Reset form
       setPrompt('');
