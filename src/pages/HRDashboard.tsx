@@ -43,19 +43,42 @@ const HRDashboard = () => {
         
       if (employeesError) throw employeesError;
       
-      // Fetch question sets with associated user data
+      // Fetch question sets - Fix the query to correctly join with user_profiles
       const { data: questionSetsData, error: questionSetsError } = await supabase
         .from('question_sets')
         .select(`
           *,
-          user_profiles:user_profiles!employee_id(name, email),
-          questions:questions(*)
+          questions(*)
         `)
         .order('created_at', { ascending: false });
         
       if (questionSetsError) throw questionSetsError;
       
-      // Fetch analysis results
+      // Fetch employee names separately for each question set
+      const questionSetsWithEmployeeNames = await Promise.all(
+        questionSetsData.map(async (qs) => {
+          if (qs.employee_id) {
+            const { data: employeeData, error: employeeError } = await supabase
+              .from('user_profiles')
+              .select('name, email')
+              .eq('user_id', qs.employee_id)
+              .single();
+            
+            if (!employeeError && employeeData) {
+              return {
+                ...qs,
+                user_profiles: employeeData
+              };
+            }
+          }
+          return {
+            ...qs,
+            user_profiles: { name: 'Unknown Employee', email: '' }
+          };
+        })
+      );
+      
+      // Fetch analysis results - Fix the query to correctly join with user_profiles
       const { data: analysisData, error: analysisError } = await supabase
         .from('question_sets')
         .select(`
@@ -65,29 +88,52 @@ const HRDashboard = () => {
           status,
           risk_level,
           created_at,
-          completed_at,
-          user_profiles:user_profiles!employee_id(name, email)
+          completed_at
         `)
         .eq('status', 'analyzed')
         .order('created_at', { ascending: false });
         
       if (analysisError) throw analysisError;
       
+      // Get employee names for analysis results
+      const analysisResultsWithNames = await Promise.all(
+        analysisData.map(async (result) => {
+          if (result.employee_id) {
+            const { data: employeeData, error: employeeError } = await supabase
+              .from('user_profiles')
+              .select('name, email')
+              .eq('user_id', result.employee_id)
+              .single();
+            
+            if (!employeeError && employeeData) {
+              return {
+                ...result,
+                user_profiles: employeeData
+              };
+            }
+          }
+          return {
+            ...result,
+            user_profiles: { name: 'Unknown Employee', email: '' }
+          };
+        })
+      );
+      
       // Calculate stats
-      const pendingAssessments = questionSetsData.filter(qs => qs.status === 'pending').length;
-      const highRiskCount = analysisData.filter(ar => ar.risk_level === 'high').length;
+      const pendingAssessments = questionSetsWithEmployeeNames.filter(qs => qs.status === 'pending').length;
+      const highRiskCount = analysisResultsWithNames.filter(ar => ar.risk_level === 'high').length;
       
       setEmployees(employeesData || []);
       
       // Format question sets for QuestionList component
-      const formattedQuestionSets = questionSetsData.map(qs => ({
+      const formattedQuestionSets = questionSetsWithEmployeeNames.map(qs => ({
         ...qs,
         employee_name: qs.user_profiles?.name || 'Unknown Employee',
         questions: qs.questions || []
       }));
       
       setAssignedQuestions(formattedQuestionSets);
-      setAnalysisResults(analysisData || []);
+      setAnalysisResults(analysisResultsWithNames || []);
       setStats({
         totalEmployees: employeesData?.length || 0,
         pendingAssessments,
