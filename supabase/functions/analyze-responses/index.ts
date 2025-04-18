@@ -89,6 +89,9 @@ serve(async (req) => {
       console.error('GEMINI_API_KEY not found in environment variables')
       throw new Error('Server configuration error: GEMINI_API_KEY is not set')
     }
+    
+    console.log('GEMINI_API_KEY is configured. Key format validation:', 
+                geminiApiKey ? `Length: ${geminiApiKey.length}, Starts with: ${geminiApiKey.substring(0, 3)}...` : 'Missing')
 
     // Format questions and answers for Gemini API
     const analysisPrompt = `You are a mental health assessment expert specializing in detecting suicidal tendencies. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
@@ -121,10 +124,13 @@ ${fullResponses.map((r, i) => `[${i+1}] Question ID: ${r.id}\nQ: ${r.question_te
 
 Important: Return ONLY the JSON. Do not include any additional text before or after.`
 
-    console.log('Sending analysis prompt to Gemini API')
+    console.log('Sending analysis prompt to Gemini API - using model: gemini-1.5-pro')
 
     // Call Gemini API for analysis
-    const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
+    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
+    console.log(`Calling Gemini API at ${geminiUrl}`)
+    
+    const geminiResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -142,7 +148,7 @@ Important: Return ONLY the JSON. Do not include any additional text before or af
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text()
       console.error(`Gemini API error (${geminiResponse.status}):`, errorText)
-      throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}`)
+      throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}. Details: ${errorText}`)
     }
 
     const geminiData = await geminiResponse.json()

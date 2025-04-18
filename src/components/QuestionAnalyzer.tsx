@@ -1,9 +1,9 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, AlertTriangle, CheckCircle, Info } from 'lucide-react';
+import { Loader2, AlertTriangle, CheckCircle, Info, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { supabase } from '../integrations/supabase/client';
@@ -17,6 +17,7 @@ interface QuestionAnalyzerProps {
 const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyzerProps) => {
   const { user } = useAuth();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<{
     overallRisk: string;
     explanation?: string;
@@ -37,6 +38,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
     }
     
     setIsAnalyzing(true);
+    setError(null);
     
     try {
       // Fetch the answered questions for this set
@@ -47,7 +49,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       
       if (questionsError) {
         console.error('Error fetching questions:', questionsError);
-        throw questionsError;
+        throw new Error(`Failed to fetch questions: ${questionsError.message}`);
       }
       
       // Filter answered questions
@@ -64,7 +66,6 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       // Prepare data for analysis
       const responses = answeredQuestions.map((q) => ({
         id: q.id,
-        question_text: q.question_text,
         answer_text: q.answer_text || ''
       }));
       
@@ -120,6 +121,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       
     } catch (error: any) {
       console.error('Analysis error:', error);
+      setError(error.message || 'Failed to analyze responses');
       toast.error(error.message || 'Failed to analyze responses. Please try again.');
     } finally {
       setIsAnalyzing(false);
@@ -161,6 +163,14 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Analysis Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        
         {!analysisResult ? (
           <div className="text-center p-6">
             <Button 
