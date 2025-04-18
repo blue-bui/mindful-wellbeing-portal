@@ -14,19 +14,29 @@ serve(async (req) => {
   }
 
   try {
-    const { question_set_id, responses } = await req.json()
+    console.log('Analyze responses function called')
+    
+    // Parse request body
+    const requestData = await req.json()
+    const { question_set_id, responses } = requestData
 
     if (!question_set_id || !responses || !Array.isArray(responses)) {
-      throw new Error('Invalid request data')
+      console.error('Invalid request data:', requestData)
+      throw new Error('Invalid request data: missing question_set_id or responses array')
     }
 
-    console.log('Received data:', { question_set_id, responseCount: responses.length })
+    console.log(`Processing analysis for question set ${question_set_id} with ${responses.length} responses`)
 
     // Initialize Supabase client
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
+    
+    if (!supabaseUrl || !supabaseKey) {
+      console.error('Missing Supabase credentials')
+      throw new Error('Server configuration error: missing Supabase credentials')
+    }
+    
+    const supabaseClient = createClient(supabaseUrl, supabaseKey)
 
     // Get the question set to retrieve employee_id and hr_id
     const { data: questionSet, error: questionSetError } = await supabaseClient
@@ -41,6 +51,7 @@ serve(async (req) => {
     }
 
     if (!questionSet) {
+      console.error('Question set not found:', question_set_id)
       throw new Error('Question set not found')
     }
 
@@ -60,6 +71,9 @@ serve(async (req) => {
     // Match responses with full question data
     const fullResponses = responses.map(r => {
       const matchingQuestion = questions.find(q => q.id === r.id)
+      if (!matchingQuestion) {
+        console.warn(`No matching question found for response id ${r.id}`)
+      }
       return {
         id: r.id,
         question_text: matchingQuestion?.question_text || 'Unknown question',
@@ -67,38 +81,47 @@ serve(async (req) => {
       }
     })
 
-    console.log('Prepared responses for analysis:', fullResponses)
+    console.log('Prepared responses for analysis:', JSON.stringify(fullResponses))
+
+    // Check if GEMINI_API_KEY is set
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+    if (!geminiApiKey) {
+      console.error('GEMINI_API_KEY not found in environment variables')
+      throw new Error('Server configuration error: GEMINI_API_KEY is not set')
+    }
 
     // Format questions and answers for Gemini API
-    const analysisPrompt = `You are a mental health assessment expert. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
+    const analysisPrompt = `You are a mental health assessment expert specializing in detecting suicidal tendencies. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
 
-Questions and Answers to analyze:
-${fullResponses.map((r) => `Q: ${r.question_text}\nA: ${r.answer_text}\n`).join('\n')}
-
-Please provide your analysis in this exact JSON format:
+Respond ONLY in this exact JSON format:
 {
   "responses": [
-    {"question_id": "${fullResponses[0]?.id || 'example-id'}", "risk_level": "low/medium/high", "probability": 0.XX},
-    // ... for all responses
+    {"question_id": "QUESTION_ID", "risk_level": "low/medium/high", "probability": 0.XX, "reasoning": "brief explanation"},
+    // for all responses
   ],
   "overall_risk": "low/medium/high",
   "explanation": "brief explanation of overall assessment"
 }
 
-Base your assessment on factors like:
+Base your assessment on these factors:
 - Expression of hopelessness
 - Signs of isolation
-- Mentions of self-harm
+- Mentions of self-harm or death
 - Emotional distress levels
-- Support system presence`
+- Support system presence
+- Loss of motivation
+- Disrupted sleep patterns
+- Negative view of future
+- Feeling of worthlessness
 
-    console.log('Sending prompt to Gemini API')
+If EVEN ONE response indicates high risk, the overall_risk should be "high".
 
-    // Check if GEMINI_API_KEY is set
-    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
-    if (!geminiApiKey) {
-      throw new Error('GEMINI_API_KEY is not set in environment variables')
-    }
+Questions and Answers to analyze:
+${fullResponses.map((r, i) => `[${i+1}] Question ID: ${r.id}\nQ: ${r.question_text}\nA: ${r.answer_text}`).join('\n\n')}
+
+Important: Return ONLY the JSON. Do not include any additional text before or after.`
+
+    console.log('Sending analysis prompt to Gemini API')
 
     // Call Gemini API for analysis
     const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
@@ -118,29 +141,38 @@ Base your assessment on factors like:
 
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text()
-      console.error('Gemini API error:', errorText)
+      console.error(`Gemini API error (${geminiResponse.status}):`, errorText)
       throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}`)
     }
 
     const geminiData = await geminiResponse.json()
     console.log('Gemini API response received')
 
+    // Extract and parse the JSON response
     let analysis
     try {
-      // Extract the JSON response from Gemini's text output
       const responseText = geminiData.candidates[0].content.parts[0].text
       console.log('Raw Gemini response:', responseText)
       
+      // Clean and parse the JSON response
       const jsonMatch = responseText.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0])
-        console.log('Parsed analysis:', analysis)
+        const jsonText = jsonMatch[0]
+        analysis = JSON.parse(jsonText)
+        console.log('Parsed analysis:', JSON.stringify(analysis))
       } else {
-        throw new Error('Could not parse JSON from Gemini response')
+        console.error('Could not find JSON in Gemini response')
+        throw new Error('Invalid response format from Gemini API')
       }
     } catch (error) {
       console.error('Error parsing Gemini response:', error)
       throw new Error(`Failed to parse analysis results: ${error.message}`)
+    }
+
+    // Validate the analysis structure
+    if (!analysis || !analysis.responses || !analysis.overall_risk) {
+      console.error('Analysis result is missing required fields:', analysis)
+      throw new Error('Invalid analysis result structure')
     }
 
     console.log('Updating question set status and risk level')

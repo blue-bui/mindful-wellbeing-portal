@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,10 +19,12 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<{
     overallRisk: string;
+    explanation?: string;
     questionResults: {
       id: string;
       risk: string;
-      probability: number;
+      probability?: number;
+      reasoning?: string;
       question: string;
       answer: string;
     }[];
@@ -40,21 +43,26 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       const { data: questions, error: questionsError } = await supabase
         .from('questions')
         .select('*')
-        .eq('question_set_id', questionSetId)
-        .eq('status', 'answered');
+        .eq('question_set_id', questionSetId);
       
-      if (questionsError) throw questionsError;
+      if (questionsError) {
+        console.error('Error fetching questions:', questionsError);
+        throw questionsError;
+      }
       
-      if (!questions || questions.length === 0) {
+      // Filter answered questions
+      const answeredQuestions = questions.filter(q => q.answer_text && q.answer_text.trim() !== '');
+      
+      if (!answeredQuestions || answeredQuestions.length === 0) {
         toast.error('No answered questions found for analysis');
         setIsAnalyzing(false);
         return;
       }
       
-      console.log('Questions to analyze:', questions);
+      console.log('Questions to analyze:', answeredQuestions);
       
       // Prepare data for analysis
-      const responses = questions.map((q) => ({
+      const responses = answeredQuestions.map((q) => ({
         id: q.id,
         question_text: q.question_text,
         answer_text: q.answer_text || ''
@@ -78,20 +86,28 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       console.log('Analysis response:', data);
       
       if (!data || data.status !== 'success') {
-        throw new Error('Analysis failed');
+        throw new Error('Analysis failed: ' + (data?.error || 'Unknown error'));
       }
       
       // Format the results for display
-      const formattedResults = data.results.map((r: any, index: number) => ({
+      const formattedResults = data.results.map((r: any) => ({
         id: r.question_id,
         risk: r.risk_level,
         probability: r.probability || 0,
-        question: questions.find(q => q.id === r.question_id)?.question_text || '',
-        answer: questions.find(q => q.id === r.question_id)?.answer_text || '',
+        reasoning: r.reasoning || '',
+        question: answeredQuestions.find(q => q.id === r.question_id)?.question_text || '',
+        answer: answeredQuestions.find(q => q.id === r.question_id)?.answer_text || '',
       }));
+      
+      // Sort results to show high risk items first
+      formattedResults.sort((a: any, b: any) => {
+        const riskOrder = { high: 0, medium: 1, low: 2 };
+        return riskOrder[a.risk as keyof typeof riskOrder] - riskOrder[b.risk as keyof typeof riskOrder];
+      });
       
       setAnalysisResult({
         overallRisk: data.overall_risk_level,
+        explanation: data.explanation,
         questionResults: formattedResults,
       });
       
@@ -104,14 +120,14 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
       
     } catch (error: any) {
       console.error('Analysis error:', error);
-      toast.error(error.message || 'Failed to analyze responses');
+      toast.error(error.message || 'Failed to analyze responses. Please try again.');
     } finally {
       setIsAnalyzing(false);
     }
   };
   
   const getRiskColor = (risk: string) => {
-    switch (risk) {
+    switch (risk.toLowerCase()) {
       case 'low':
         return 'bg-green-100 text-green-800 hover:bg-green-100';
       case 'medium':
@@ -124,7 +140,7 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
   };
   
   const getRiskIcon = (risk: string) => {
-    switch (risk) {
+    switch (risk.toLowerCase()) {
       case 'low':
         return <CheckCircle className="h-4 w-4" />;
       case 'medium':
@@ -184,6 +200,13 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
               </Badge>
             </div>
             
+            {analysisResult.explanation && (
+              <div className="p-3 border rounded-md bg-muted/30">
+                <p className="text-sm font-medium">Analysis Summary:</p>
+                <p className="text-sm">{analysisResult.explanation}</p>
+              </div>
+            )}
+            
             {analysisResult.overallRisk === 'high' && (
               <Alert variant="destructive" className="bg-red-50 text-red-800 border-red-200">
                 <AlertTriangle className="h-4 w-4" />
@@ -225,6 +248,12 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
                       <p className="text-xs text-muted-foreground mb-1">Response:</p>
                       {result.answer}
                     </div>
+                    {result.reasoning && (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        <p className="font-medium">Analysis:</p>
+                        <p>{result.reasoning}</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

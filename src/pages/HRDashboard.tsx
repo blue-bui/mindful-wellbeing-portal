@@ -7,10 +7,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import Layout from '../components/Layout';
 import QuestionGenerator from '../components/QuestionGenerator';
 import QuestionList from '../components/QuestionList';
-import { AlertCircle, BarChart2, User, FileText, Loader2 } from 'lucide-react';
+import QuestionAnalyzer from '../components/QuestionAnalyzer';
+import { AlertCircle, BarChart2, User, FileText, Loader2, Eye } from 'lucide-react';
 import { supabase } from '../integrations/supabase/client';
 import { useAuth } from '../lib/authHelpers';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 
 const HRDashboard = () => {
   const { user } = useAuth();
@@ -19,6 +21,7 @@ const HRDashboard = () => {
   const [employees, setEmployees] = useState([]);
   const [assignedQuestions, setAssignedQuestions] = useState([]);
   const [analysisResults, setAnalysisResults] = useState([]);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<string | null>(null);
   const [stats, setStats] = useState({
     totalEmployees: 0,
     pendingAssessments: 0,
@@ -149,7 +152,9 @@ const HRDashboard = () => {
   };
 
   const getRiskColor = (risk) => {
-    switch (risk) {
+    if (!risk) return 'bg-gray-100 text-gray-800';
+    
+    switch (risk.toLowerCase()) {
       case 'low':
         return 'bg-green-100 text-green-800';
       case 'medium':
@@ -273,7 +278,7 @@ const HRDashboard = () => {
               <CardHeader>
                 <CardTitle>Sentiment Analysis Results</CardTitle>
                 <CardDescription>
-                  ML-powered analysis of employee responses to detect potential risk patterns
+                  AI-powered analysis of employee responses to detect potential risk patterns
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -308,15 +313,15 @@ const HRDashboard = () => {
                               </div>
                             </TableCell>
                             <TableCell>
-                              <button 
-                                className="text-wellness-teal hover:underline text-sm"
-                                onClick={() => {
-                                  // This would ideally open a modal or navigate to a detailed view
-                                  toast.info('Detailed view not implemented yet');
-                                }}
+                              <Button 
+                                variant="outline"
+                                size="sm"
+                                className="flex items-center gap-1 text-wellness-teal"
+                                onClick={() => setSelectedAnalysis(result.id)}
                               >
+                                <Eye size={14} />
                                 View Details
-                              </button>
+                              </Button>
                             </TableCell>
                           </TableRow>
                         ))}
@@ -330,6 +335,31 @@ const HRDashboard = () => {
                 )}
               </CardContent>
             </Card>
+            
+            {selectedAnalysis && (
+              <div className="mt-6">
+                <Card>
+                  <CardHeader>
+                    <div className="flex justify-between items-center">
+                      <CardTitle>Detailed Analysis</CardTitle>
+                      <Button 
+                        variant="ghost" 
+                        size="sm"
+                        onClick={() => setSelectedAnalysis(null)}
+                      >
+                        Close
+                      </Button>
+                    </div>
+                    <CardDescription>
+                      Individual question analysis and risk assessment results
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <QuestionAnalyzer questionSetId={selectedAnalysis} />
+                  </CardContent>
+                </Card>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>
