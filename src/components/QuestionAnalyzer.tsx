@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,11 +51,16 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         return;
       }
       
+      console.log('Questions to analyze:', questions);
+      
       // Prepare data for analysis
       const responses = questions.map((q) => ({
         id: q.id,
+        question_text: q.question_text,
         answer_text: q.answer_text || ''
       }));
+      
+      console.log('Sending to edge function:', { question_set_id: questionSetId, responses });
       
       // Call our edge function to analyze the responses
       const { data, error } = await supabase.functions.invoke('analyze-responses', {
@@ -66,78 +70,30 @@ const QuestionAnalyzer = ({ questionSetId, onAnalysisComplete }: QuestionAnalyze
         },
       });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Edge function error:', error);
+        throw error;
+      }
+      
+      console.log('Analysis response:', data);
       
       if (!data || data.status !== 'success') {
         throw new Error('Analysis failed');
       }
       
       // Format the results for display
-      const formattedResults = data.results.map((r, index) => ({
+      const formattedResults = data.results.map((r: any, index: number) => ({
         id: r.question_id,
         risk: r.risk_level,
-        probability: r.probability,
-        question: questions[index]?.question_text || '',
-        answer: questions[index]?.answer_text || '',
+        probability: r.probability || 0,
+        question: questions.find(q => q.id === r.question_id)?.question_text || '',
+        answer: questions.find(q => q.id === r.question_id)?.answer_text || '',
       }));
       
       setAnalysisResult({
         overallRisk: data.overall_risk_level,
         questionResults: formattedResults,
       });
-      
-      // Update the question set status and risk level in the database
-      const { error: updateError } = await supabase
-        .from('question_sets')
-        .update({ 
-          status: 'analyzed',
-          risk_level: data.overall_risk_level 
-        })
-        .eq('id', questionSetId);
-      
-      if (updateError) {
-        console.error('Error updating question set:', updateError);
-        toast.error('Error updating analysis results in database');
-      }
-      
-      // Update each question's status and risk level
-      for (const resultItem of data.results) {
-        const { error: questionUpdateError } = await supabase
-          .from('questions')
-          .update({ 
-            status: 'analyzed',
-            risk_level: resultItem.risk_level 
-          })
-          .eq('id', resultItem.question_id);
-          
-        if (questionUpdateError) {
-          console.error('Error updating question:', questionUpdateError);
-        }
-      }
-      
-      // Get the question set details
-      const { data: questionSet } = await supabase
-        .from('question_sets')
-        .select('*')
-        .eq('id', questionSetId)
-        .single();
-        
-      if (questionSet) {
-        // Create a history record
-        const { error: historyError } = await supabase
-          .from('question_history')
-          .insert({
-            question_set_id: questionSetId,
-            employee_id: questionSet.employee_id,
-            hr_id: questionSet.hr_id,
-            overall_risk_level: data.overall_risk_level,
-            completed_at: new Date().toISOString()
-          });
-          
-        if (historyError) {
-          console.error('Error creating history record:', historyError);
-        }
-      }
       
       // Call the completion callback if provided
       if (onAnalysisComplete) {

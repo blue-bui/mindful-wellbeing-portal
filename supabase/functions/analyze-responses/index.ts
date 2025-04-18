@@ -20,6 +20,8 @@ serve(async (req) => {
       throw new Error('Invalid request data')
     }
 
+    console.log('Received data:', { question_set_id, responseCount: responses.length })
+
     // Initialize Supabase client
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -33,18 +35,50 @@ serve(async (req) => {
       .eq('id', question_set_id)
       .single()
 
-    if (questionSetError) throw questionSetError
+    if (questionSetError) {
+      console.error('Error fetching question set:', questionSetError)
+      throw new Error(`Failed to fetch question set: ${questionSetError.message}`)
+    }
+
+    if (!questionSet) {
+      throw new Error('Question set not found')
+    }
+
+    console.log('Question set data:', questionSet)
+
+    // Get full questions data to include in the analysis
+    const { data: questions, error: questionsError } = await supabaseClient
+      .from('questions')
+      .select('id, question_text, answer_text')
+      .eq('question_set_id', question_set_id)
+
+    if (questionsError) {
+      console.error('Error fetching questions:', questionsError)
+      throw new Error(`Failed to fetch questions: ${questionsError.message}`)
+    }
+
+    // Match responses with full question data
+    const fullResponses = responses.map(r => {
+      const matchingQuestion = questions.find(q => q.id === r.id)
+      return {
+        id: r.id,
+        question_text: matchingQuestion?.question_text || 'Unknown question',
+        answer_text: r.answer_text || matchingQuestion?.answer_text || 'No answer provided'
+      }
+    })
+
+    console.log('Prepared responses for analysis:', fullResponses)
 
     // Format questions and answers for Gemini API
     const analysisPrompt = `You are a mental health assessment expert. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
 
 Questions and Answers to analyze:
-${responses.map((r: any) => `Q: ${r.question_text}\nA: ${r.answer_text}\n`).join('\n')}
+${fullResponses.map((r) => `Q: ${r.question_text}\nA: ${r.answer_text}\n`).join('\n')}
 
 Please provide your analysis in this exact JSON format:
 {
   "responses": [
-    {"question_id": "1", "risk_level": "low/medium/high", "probability": 0.XX},
+    {"question_id": "${fullResponses[0]?.id || 'example-id'}", "risk_level": "low/medium/high", "probability": 0.XX},
     // ... for all responses
   ],
   "overall_risk": "low/medium/high",
@@ -58,12 +92,20 @@ Base your assessment on factors like:
 - Emotional distress levels
 - Support system presence`
 
+    console.log('Sending prompt to Gemini API')
+
+    // Check if GEMINI_API_KEY is set
+    const geminiApiKey = Deno.env.get('GEMINI_API_KEY')
+    if (!geminiApiKey) {
+      throw new Error('GEMINI_API_KEY is not set in environment variables')
+    }
+
     // Call Gemini API for analysis
     const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${Deno.env.get('GEMINI_API_KEY')}`
+        'Authorization': `Bearer ${geminiApiKey}`
       },
       body: JSON.stringify({
         contents: [{
@@ -75,27 +117,34 @@ Base your assessment on factors like:
     });
 
     if (!geminiResponse.ok) {
-      throw new Error(`Gemini API error: ${geminiResponse.statusText}`);
+      const errorText = await geminiResponse.text()
+      console.error('Gemini API error:', errorText)
+      throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}`)
     }
 
-    const geminiData = await geminiResponse.json();
-    console.log('Gemini API response:', JSON.stringify(geminiData, null, 2));
+    const geminiData = await geminiResponse.json()
+    console.log('Gemini API response received')
 
-    let analysis;
+    let analysis
     try {
       // Extract the JSON response from Gemini's text output
-      const responseText = geminiData.candidates[0].content.parts[0].text;
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      const responseText = geminiData.candidates[0].content.parts[0].text
+      console.log('Raw Gemini response:', responseText)
+      
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
       if (jsonMatch) {
-        analysis = JSON.parse(jsonMatch[0]);
+        analysis = JSON.parse(jsonMatch[0])
+        console.log('Parsed analysis:', analysis)
       } else {
-        throw new Error('Could not parse JSON from Gemini response');
+        throw new Error('Could not parse JSON from Gemini response')
       }
     } catch (error) {
-      console.error('Error parsing Gemini response:', error);
-      throw new Error('Failed to parse analysis results');
+      console.error('Error parsing Gemini response:', error)
+      throw new Error(`Failed to parse analysis results: ${error.message}`)
     }
 
+    console.log('Updating question set status and risk level')
+    
     // Update question set status and risk level
     const { error: updateSetError } = await supabaseClient
       .from('question_sets')
@@ -106,8 +155,13 @@ Base your assessment on factors like:
       })
       .eq('id', question_set_id)
 
-    if (updateSetError) throw updateSetError
+    if (updateSetError) {
+      console.error('Error updating question set:', updateSetError)
+      throw new Error(`Failed to update question set: ${updateSetError.message}`)
+    }
 
+    console.log('Updating individual questions with risk levels')
+    
     // Update individual questions with their risk levels
     for (const result of analysis.responses) {
       const { error: updateError } = await supabaseClient
@@ -118,9 +172,13 @@ Base your assessment on factors like:
         })
         .eq('id', result.question_id)
 
-      if (updateError) throw updateError
+      if (updateError) {
+        console.error(`Error updating question ${result.question_id}:`, updateError)
+      }
     }
 
+    console.log('Creating analysis history record')
+    
     // Create analysis history record
     const { error: historyError } = await supabaseClient
       .from('question_history')
@@ -132,8 +190,12 @@ Base your assessment on factors like:
         completed_at: new Date().toISOString()
       })
 
-    if (historyError) throw historyError
+    if (historyError) {
+      console.error('Error creating history record:', historyError)
+    }
 
+    console.log('Analysis process completed successfully')
+    
     return new Response(
       JSON.stringify({
         status: 'success',
