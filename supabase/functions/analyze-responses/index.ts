@@ -90,8 +90,9 @@ serve(async (req) => {
       throw new Error('Server configuration error: GEMINI_API_KEY is not set')
     }
     
-    console.log('GEMINI_API_KEY is configured. Key format validation:', 
-                geminiApiKey ? `Length: ${geminiApiKey.length}, Starts with: ${geminiApiKey.substring(0, 3)}...` : 'Missing')
+    // Verify API key is properly set (without revealing the full key in logs)
+    const keyLength = geminiApiKey.length;
+    console.log(`GEMINI_API_KEY verification: Length=${keyLength}, Format check=${keyLength > 20 ? "Passed" : "Failed"}`);
 
     // Format questions and answers for Gemini API
     const analysisPrompt = `You are a mental health assessment expert specializing in detecting suicidal tendencies. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
@@ -117,7 +118,7 @@ Base your assessment on these factors:
 - Negative view of future
 - Feeling of worthlessness
 
-If EVEN ONE response indicates high risk, the overall_risk should be "high".
+IMPORTANT: If EVEN ONE response indicates high risk, the overall_risk should be "high".
 
 Questions and Answers to analyze:
 ${fullResponses.map((r, i) => `[${i+1}] Question ID: ${r.id}\nQ: ${r.question_text}\nA: ${r.answer_text}`).join('\n\n')}
@@ -126,124 +127,128 @@ Important: Return ONLY the JSON. Do not include any additional text before or af
 
     console.log('Sending analysis prompt to Gemini API - using model: gemini-1.5-pro')
 
-    // Call Gemini API for analysis
-    const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
-    console.log(`Calling Gemini API at ${geminiUrl}`)
-    
-    const geminiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${geminiApiKey}`
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: analysisPrompt
-          }]
-        }]
-      })
-    });
-
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text()
-      console.error(`Gemini API error (${geminiResponse.status}):`, errorText)
-      throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}. Details: ${errorText}`)
-    }
-
-    const geminiData = await geminiResponse.json()
-    console.log('Gemini API response received')
-
-    // Extract and parse the JSON response
-    let analysis
     try {
-      const responseText = geminiData.candidates[0].content.parts[0].text
-      console.log('Raw Gemini response:', responseText)
+      // Call Gemini API for analysis with proper error handling
+      const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
+      console.log(`Calling Gemini API at ${geminiUrl}`)
       
-      // Clean and parse the JSON response
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const jsonText = jsonMatch[0]
-        analysis = JSON.parse(jsonText)
-        console.log('Parsed analysis:', JSON.stringify(analysis))
-      } else {
-        console.error('Could not find JSON in Gemini response')
-        throw new Error('Invalid response format from Gemini API')
+      const geminiResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${geminiApiKey}`
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: analysisPrompt
+            }]
+          }]
+        })
+      });
+
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text()
+        console.error(`Gemini API error (${geminiResponse.status}):`, errorText)
+        throw new Error(`Gemini API error: ${geminiResponse.status} - ${geminiResponse.statusText}. Details: ${errorText}`)
       }
-    } catch (error) {
-      console.error('Error parsing Gemini response:', error)
-      throw new Error(`Failed to parse analysis results: ${error.message}`)
-    }
 
-    // Validate the analysis structure
-    if (!analysis || !analysis.responses || !analysis.overall_risk) {
-      console.error('Analysis result is missing required fields:', analysis)
-      throw new Error('Invalid analysis result structure')
-    }
+      const geminiData = await geminiResponse.json()
+      console.log('Gemini API response received')
 
-    console.log('Updating question set status and risk level')
-    
-    // Update question set status and risk level
-    const { error: updateSetError } = await supabaseClient
-      .from('question_sets')
-      .update({ 
-        status: 'analyzed',
-        risk_level: analysis.overall_risk,
-        completed_at: new Date().toISOString()
-      })
-      .eq('id', question_set_id)
+      // Extract and parse the JSON response
+      let analysis
+      try {
+        const responseText = geminiData.candidates[0].content.parts[0].text
+        console.log('Raw Gemini response:', responseText)
+        
+        // Clean and parse the JSON response
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const jsonText = jsonMatch[0]
+          analysis = JSON.parse(jsonText)
+          console.log('Parsed analysis:', JSON.stringify(analysis))
+        } else {
+          console.error('Could not find JSON in Gemini response')
+          throw new Error('Invalid response format from Gemini API')
+        }
+      } catch (error) {
+        console.error('Error parsing Gemini response:', error)
+        throw new Error(`Failed to parse analysis results: ${error.message}`)
+      }
 
-    if (updateSetError) {
-      console.error('Error updating question set:', updateSetError)
-      throw new Error(`Failed to update question set: ${updateSetError.message}`)
-    }
+      // Validate the analysis structure
+      if (!analysis || !analysis.responses || !analysis.overall_risk) {
+        console.error('Analysis result is missing required fields:', analysis)
+        throw new Error('Invalid analysis result structure')
+      }
 
-    console.log('Updating individual questions with risk levels')
-    
-    // Update individual questions with their risk levels
-    for (const result of analysis.responses) {
-      const { error: updateError } = await supabaseClient
-        .from('questions')
+      console.log('Updating question set status and risk level')
+      
+      // Update question set status and risk level
+      const { error: updateSetError } = await supabaseClient
+        .from('question_sets')
         .update({ 
           status: 'analyzed',
-          risk_level: result.risk_level
+          risk_level: analysis.overall_risk,
+          completed_at: new Date().toISOString()
         })
-        .eq('id', result.question_id)
+        .eq('id', question_set_id)
 
-      if (updateError) {
-        console.error(`Error updating question ${result.question_id}:`, updateError)
+      if (updateSetError) {
+        console.error('Error updating question set:', updateSetError)
+        throw new Error(`Failed to update question set: ${updateSetError.message}`)
       }
+
+      console.log('Updating individual questions with risk levels')
+      
+      // Update individual questions with their risk levels
+      for (const result of analysis.responses) {
+        const { error: updateError } = await supabaseClient
+          .from('questions')
+          .update({ 
+            status: 'analyzed',
+            risk_level: result.risk_level
+          })
+          .eq('id', result.question_id)
+
+        if (updateError) {
+          console.error(`Error updating question ${result.question_id}:`, updateError)
+        }
+      }
+
+      console.log('Creating analysis history record')
+      
+      // Create analysis history record
+      const { error: historyError } = await supabaseClient
+        .from('question_history')
+        .insert({
+          question_set_id: question_set_id,
+          employee_id: questionSet.employee_id,
+          hr_id: questionSet.hr_id,
+          overall_risk_level: analysis.overall_risk,
+          completed_at: new Date().toISOString()
+        })
+
+      if (historyError) {
+        console.error('Error creating history record:', historyError)
+      }
+
+      console.log('Analysis process completed successfully')
+      
+      return new Response(
+        JSON.stringify({
+          status: 'success',
+          results: analysis.responses,
+          overall_risk_level: analysis.overall_risk,
+          explanation: analysis.explanation
+        }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    } catch (apiError) {
+      console.error('API request or processing error:', apiError)
+      throw new Error(`API error: ${apiError.message}`)
     }
-
-    console.log('Creating analysis history record')
-    
-    // Create analysis history record
-    const { error: historyError } = await supabaseClient
-      .from('question_history')
-      .insert({
-        question_set_id: question_set_id,
-        employee_id: questionSet.employee_id,
-        hr_id: questionSet.hr_id,
-        overall_risk_level: analysis.overall_risk,
-        completed_at: new Date().toISOString()
-      })
-
-    if (historyError) {
-      console.error('Error creating history record:', historyError)
-    }
-
-    console.log('Analysis process completed successfully')
-    
-    return new Response(
-      JSON.stringify({
-        status: 'success',
-        results: analysis.responses,
-        overall_risk_level: analysis.overall_risk,
-        explanation: analysis.explanation
-      }),
-      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
-
   } catch (error) {
     console.error('Error in analyze-responses function:', error)
     return new Response(
