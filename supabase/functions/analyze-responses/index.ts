@@ -90,9 +90,13 @@ serve(async (req) => {
       throw new Error('Server configuration error: GEMINI_API_KEY is not set')
     }
     
-    // Verify API key is properly set (without revealing the full key in logs)
-    const keyLength = geminiApiKey.length;
-    console.log(`GEMINI_API_KEY verification: Length=${keyLength}, Format check=${keyLength > 20 ? "Passed" : "Failed"}`);
+    // Verify API key format - without revealing the key in logs
+    if (!geminiApiKey || geminiApiKey.length < 20) {
+      console.error('GEMINI_API_KEY appears to be invalid: too short or not set properly')
+      throw new Error('Server configuration error: GEMINI_API_KEY is invalid')
+    }
+
+    console.log(`GEMINI_API_KEY verification: Length=${geminiApiKey.length}, Format check=${geminiApiKey.length > 20 ? "Passed" : "Failed"}`)
 
     // Format questions and answers for Gemini API
     const analysisPrompt = `You are a mental health assessment expert specializing in detecting suicidal tendencies. Given the following questions and answers, analyze each response and classify it as "low", "medium", or "high" risk in terms of suicidal tendencies. 
@@ -128,7 +132,7 @@ Important: Return ONLY the JSON. Do not include any additional text before or af
     console.log('Sending analysis prompt to Gemini API - using model: gemini-1.5-pro')
 
     try {
-      // Call Gemini API for analysis with proper error handling
+      // Call Gemini API for analysis with proper error handling and authentication
       const geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent'
       console.log(`Calling Gemini API at ${geminiUrl}`)
       
@@ -136,7 +140,7 @@ Important: Return ONLY the JSON. Do not include any additional text before or af
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${geminiApiKey}`
+          'x-goog-api-key': geminiApiKey // This is the correct header format for Google APIs
         },
         body: JSON.stringify({
           contents: [{
