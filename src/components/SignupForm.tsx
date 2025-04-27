@@ -5,10 +5,13 @@ import { supabase } from '../lib/supabase';
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from 'sonner';
+import { Label } from "@/components/ui/label";
 
 const SignupForm = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [isHr, setIsHr] = useState(false);
+  const [hrPassword, setHrPassword] = useState('');
   const [formData, setFormData] = useState({
     email: '',
     password: '',
@@ -20,12 +23,19 @@ const SignupForm = () => {
     setLoading(true);
 
     try {
+      if (isHr && hrPassword !== 'iamhr') {
+        toast.error('Invalid HR password');
+        setLoading(false);
+        return;
+      }
+
       const { data: signupData, error: signupError } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
         options: {
           data: {
             name: formData.name,
+            role: isHr ? 'hr' : 'employee'
           }
         }
       });
@@ -53,9 +63,9 @@ const SignupForm = () => {
   return (
     <form onSubmit={handleSubmit} className="space-y-4 bg-white p-6 rounded-lg shadow-md">
       <div>
-        <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+        <Label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
           Full Name
-        </label>
+        </Label>
         <Input
           id="name"
           name="name"
@@ -68,9 +78,9 @@ const SignupForm = () => {
       </div>
 
       <div>
-        <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+        <Label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
           Email
-        </label>
+        </Label>
         <Input
           id="email"
           name="email"
@@ -83,9 +93,9 @@ const SignupForm = () => {
       </div>
 
       <div>
-        <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+        <Label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
           Password
-        </label>
+        </Label>
         <Input
           id="password"
           name="password"
@@ -97,6 +107,33 @@ const SignupForm = () => {
           minLength={6}
         />
       </div>
+
+      <div className="flex items-center space-x-2">
+        <input
+          type="checkbox"
+          id="isHr"
+          checked={isHr}
+          onChange={(e) => setIsHr(e.target.checked)}
+          className="rounded border-gray-300"
+        />
+        <Label htmlFor="isHr">Sign up as HR</Label>
+      </div>
+
+      {isHr && (
+        <div>
+          <Label htmlFor="hrPassword" className="block text-sm font-medium text-gray-700 mb-1">
+            HR Password
+          </Label>
+          <Input
+            id="hrPassword"
+            type="password"
+            required
+            value={hrPassword}
+            onChange={(e) => setHrPassword(e.target.value)}
+            placeholder="Enter HR password"
+          />
+        </div>
+      )}
 
       <Button
         type="submit"
